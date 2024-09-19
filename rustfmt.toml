@@ -1,0 +1,8 @@
+hard_tabs = false
+match_block_trailing_comma = true
+max_width = 79
+newline_style = "Unix"
+reorder_imports = true
+reorder_modules = true
+use_field_init_shorthand = true
+use_small_heuristics = "Default"

@@ -1,0 +1,102 @@
+[package]
+name = "zvuk-dl"
+version = "0.1.0"
+edition = "2021"
+repository = "https://github.com/skarrok/zvuk-dl-rs"
+license = "MIT"
+
+[dependencies]
+anyhow = "1.0.89"
+audiotags = "0.5.0"
+clap = { version = "4.5.18", features = ["derive", "env"] }
+dotenvy = "0.15.7"
+humantime = "2.1.0"
+metaflac = "0.2.7"
+reqwest = { version = "0.12.7", default-features = false, features = [
+        "blocking",
+        "http2",
+        "json",
+        "rustls-tls",
+] }
+serde_json = "1.0.128"
+serde = { version = "1.0.210", features = ["derive"] }
+supports-color = "3.0.1"
+tracing-subscriber = { version = "0.3.18", features = ["json", "env-filter"] }
+tracing = { version = "0.1.40", features = ["log"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+
+clone_on_ref_ptr = "deny"
+disallowed_script_idents = "deny"
+empty_enum_variants_with_brackets = "deny"
+empty_structs_with_brackets = "deny"
+enum_glob_use = "deny"
+error_impl_error = "deny"
+exit = "deny"
+explicit_into_iter_loop = "deny"
+explicit_iter_loop = "deny"
+float_cmp_const = "deny"
+if_then_some_else_none = "deny"
+indexing_slicing = "deny"
+lossy_float_literal = "deny"
+map_err_ignore = "deny"
+multiple_inherent_impl = "deny"
+needless_raw_strings = "deny"
+partial_pub_fields = "deny"
+rc_buffer = "deny"
+rc_mutex = "deny"
+rest_pat_in_fully_bound_structs = "deny"
+self_named_module_files = "deny"
+semicolon_inside_block = "deny"
+semicolon_outside_block = "deny"
+string_slice = "deny"
+string_to_string = "deny"
+tests_outside_test_module = "deny"
+try_err = "deny"
+unnecessary_self_imports = "deny"
+unneeded_field_pattern = "deny"
+unseparated_literal_suffix = "deny"
+verbose_file_reads = "deny"
+
+complexity = { level = "deny", priority = -1 }
+perf = { level = "deny", priority = -1 }
+style = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+
+similar_names = "allow"
+single_match_else = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+
+# The profile that 'cargo dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
+# Config for 'cargo dist'
+[workspace.metadata.dist]
+# The preferred cargo-dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.22.1"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell", "powershell"]
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "x86_64-unknown-linux-gnu",
+        "x86_64-unknown-linux-musl",
+        "x86_64-pc-windows-msvc",
+]
+# Path that installers should place binaries in
+install-path = "CARGO_HOME"
+# Whether to install an updater program
+install-updater = false
