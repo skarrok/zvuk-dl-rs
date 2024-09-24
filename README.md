@@ -1,6 +1,6 @@
 # zvuk-dl ![Release](https://github.com/skarrok/zvuk-dl-rs/actions/workflows/release.yml/badge.svg)
 
-Download albums and tracks in high quality (FLAC) from [zvuk.com](https://zvuk.com)
+Download albums and tracks in high quality (FLAC or MP3) from [zvuk.com](https://zvuk.com)
 
 NOTICE: You must have zvuk.com account and paid subscription to use this tool.
 
@@ -70,6 +70,13 @@ Options:
           Zvuk Token
 
           [env: TOKEN]
+
+  -q, --quality <QUALITY>
+          Quality of tracks to grab
+
+          [env: QUALITY=]
+          [default: flac]
+          [possible values: flac, mp3-high, mp3-mid]
 
       --embed-cover[=<EMBED_COVER>]
           Embed album cover into tracks

@@ -1,14 +1,19 @@
 use std::{
     collections::{HashMap, HashSet},
+    fmt::Display,
     path::{Path, PathBuf},
     time::Duration,
 };
 
 use anyhow::Context;
 use audiotags::{
-    traits::AudioTagEdit, traits::AudioTagWrite, FlacTag, MimeType, Picture,
+    traits::AudioTagWrite, AudioTag, FlacTag, Id3v2Tag, MimeType, Picture,
 };
+use chrono::{Datelike, NaiveDate};
+use clap::ValueEnum;
+use id3::{frame, TagLike};
 use reqwest::header::COOKIE;
+use serde::Serialize;
 
 use crate::config::Config;
 
@@ -47,12 +52,53 @@ struct TrackInfo {
     lyrics: bool,
 }
 
+#[derive(ValueEnum, Debug, Clone, Serialize)]
+pub enum Quality {
+    Flac,
+    // 320 kbps
+    MP3High,
+    // 128 kbps
+    MP3Mid,
+}
+
+impl Quality {
+    fn extension(&self) -> String {
+        let string = match self {
+            Self::Flac => "flac",
+            Self::MP3High | Self::MP3Mid => "mp3",
+        };
+        String::from(string)
+    }
+}
+
+impl Display for Quality {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Flac => write!(f, "flac"),
+            Self::MP3High => write!(f, "high"),
+            Self::MP3Mid => write!(f, "mid"),
+        }
+    }
+}
+
+enum LyricsKind {
+    Subtitle,
+    Lyrics,
+}
+
+#[expect(unused)]
+struct Lyrics {
+    kind: LyricsKind,
+    text: String,
+}
+
 struct Client {
     embed_cover: bool,
     resize_cover: bool,
     resize_cover_limit: u64,
     download_lyrics: bool,
     resize_command: String,
+    quality: Quality,
 
     pause_between_getting_track_links: Duration,
     cookie_token: String,
@@ -67,9 +113,10 @@ impl Client {
             resize_cover_limit: config.resize_cover_limit,
             download_lyrics: config.download_lyrics,
             resize_command: config.resize_command.clone(),
-
             pause_between_getting_track_links: config
                 .pause_between_getting_track_links,
+            quality: config.quality.clone(),
+
             cookie_token: format!("auth={}", config.token),
             http: reqwest::blocking::Client::new(),
         }
@@ -79,7 +126,7 @@ impl Client {
         &self,
         label_ids: &[String],
     ) -> anyhow::Result<HashMap<String, String>> {
-        tracing::info!("Downloading label metadata");
+        tracing::info!("Getting labels metadata");
         let response = self
             .http
             .get(ZVUK_LABELS_URL)
@@ -118,7 +165,7 @@ impl Client {
         &self,
         release_ids: &[String],
     ) -> anyhow::Result<HashMap<String, ReleaseInfo>> {
-        tracing::info!("Downloading releases metadata");
+        tracing::info!("Getting releases metadata");
         let response = self
             .http
             .get(ZVUK_RELEASES_URL)
@@ -260,7 +307,7 @@ impl Client {
             );
             if let Err(e) = result {
                 tracing::warn!(
-                    "Failed to download and process track id={track_id}: {e}"
+                    "Failed to download and process track id={track_id}: {e:#}"
                 );
             }
         }
@@ -271,7 +318,7 @@ impl Client {
         &self,
         track_ids: &[String],
     ) -> anyhow::Result<HashMap<String, TrackInfo>> {
-        tracing::info!("Downloading tracks metadata");
+        tracing::info!("Getting tracks metadata");
         let response = self
             .http
             .get(ZVUK_TRACKS_URL)
@@ -293,10 +340,11 @@ impl Client {
             .and_then(|x| x.as_object())
             .context("tracks is not an object")?
         {
-            if !track_info
-                .get("has_flac")
-                .and_then(serde_json::Value::as_bool)
-                .context("has_flac is not bool")?
+            if matches!(self.quality, Quality::Flac)
+                && !track_info
+                    .get("has_flac")
+                    .and_then(serde_json::Value::as_bool)
+                    .context("has_flac is not bool")?
             {
                 tracing::warn!(
                     "track id {track_id} doesn't have FLAC quality available"
@@ -364,14 +412,17 @@ impl Client {
         &self,
         track_ids: &[String],
     ) -> anyhow::Result<HashMap<String, String>> {
-        tracing::info!("Downloading tracks FLAC urls");
+        tracing::info!("Getting download urls in {} quality", self.quality);
         let mut urls = HashMap::new();
 
         for track_id in track_ids {
             let response = self
                 .http
                 .get(ZVUK_DOWNLOAD_URL)
-                .query(&[("quality", "flac"), ("id", track_id)])
+                .query(&[
+                    ("quality", &self.quality.to_string()),
+                    ("id", track_id),
+                ])
                 .header(COOKIE, &self.cookie_token)
                 .send()
                 .context("Failed to download track links")?;
@@ -395,8 +446,12 @@ impl Client {
         Ok(urls)
     }
 
-    fn get_lyrics(&self, track_id: &str) -> anyhow::Result<String> {
-        tracing::debug!("Downloading lyrics for track id={track_id}");
+    fn get_lyrics(
+        &self,
+        track_id: &str,
+        path: &Path,
+    ) -> anyhow::Result<Lyrics> {
+        tracing::info!("Getting lyrics for {}", path.display());
         let response = self
             .http
             .get(ZVUK_LYRICS_URL)
@@ -416,7 +471,23 @@ impl Client {
             .context("lyrics is not a string")?
             .to_string();
 
-        Ok(lyrics)
+        let type_ = body
+            .get("result")
+            .and_then(|x| x.get("type"))
+            .and_then(|x| x.as_str())
+            .context("lyrics type is not a string")?
+            .to_string();
+
+        let lyrics_type = if type_ == "subtitle" {
+            LyricsKind::Subtitle
+        } else {
+            LyricsKind::Lyrics
+        };
+
+        Ok(Lyrics {
+            kind: lyrics_type,
+            text: lyrics,
+        })
     }
 
     fn download_cover(&self, url: &str, path: &Path) -> anyhow::Result<()> {
@@ -478,8 +549,10 @@ impl Client {
             .context("Failed to download and process album cover")?;
 
         let filename = PathBuf::from(format!(
-            "{:02} - {}.flac",
-            track_info.number, track_info.name
+            "{:02} - {}.{}",
+            track_info.number,
+            track_info.name,
+            self.quality.extension()
         ));
         let filepath = folder.join(filename);
 
@@ -494,17 +567,59 @@ impl Client {
             &filepath,
             response.bytes().context("Failed to read track data")?,
         )
-        .context("Failed to write track")?;
+        .context("Failed to save track on disk")?;
 
-        let mut flac = FlacTag::read_from_path(&filepath)
-            .context("Failed to read tags from track")?;
+        self.write_tags(&filepath, &cover_path, track_info, release_info)?;
 
-        flac.set_artist(&track_info.author);
-        flac.set_title(&track_info.name);
-        flac.set_album_title(&release_info.album);
-        flac.set_track_number(track_info.number.try_into()?);
-        flac.set_total_tracks(release_info.track_count.try_into()?);
-        flac.set_genre(&track_info.genre);
+        Ok(())
+    }
+
+    fn write_tags(
+        &self,
+        filepath: &Path,
+        cover_path: &PathBuf,
+        track_info: &TrackInfo,
+        release_info: &ReleaseInfo,
+    ) -> anyhow::Result<()> {
+        let mut tags: Box<dyn AudioTag + Send + Sync> = match self.quality {
+            Quality::Flac => FlacTag::read_from_path(filepath).map_or_else(
+                |_| {
+                    tracing::trace!("Failed to read FLAC tag from file");
+                    Box::new(FlacTag::new())
+                },
+                Box::new,
+            ),
+            Quality::MP3High | Quality::MP3Mid => {
+                Id3v2Tag::read_from_path(filepath).map_or_else(
+                    |_| {
+                        tracing::trace!("Failed to read ID3v2 tag from file");
+                        Box::new(Id3v2Tag::new())
+                    },
+                    Box::new,
+                )
+            },
+        };
+
+        tags.set_artist(&track_info.author);
+        tags.set_title(&track_info.name);
+        tags.set_album_title(&release_info.album);
+        tags.set_track_number(track_info.number.try_into()?);
+        tags.set_total_tracks(release_info.track_count.try_into()?);
+        tags.set_genre(&track_info.genre);
+
+        if let Ok(date) =
+            NaiveDate::parse_from_str(&release_info.date, "%Y%m%d")
+        {
+            tags.set_date(id3::Timestamp {
+                year: date.year(),
+                month: u8::try_from(date.month()).ok(),
+                day: u8::try_from(date.day()).ok(),
+                hour: None,
+                minute: None,
+                second: None,
+            });
+            tags.set_year(date.year());
+        }
 
         if self.embed_cover {
             let cover = Picture {
@@ -512,39 +627,99 @@ impl Client {
                 data: &std::fs::read(cover_path)
                     .context("Failed to read cover file for embedding")?,
             };
-            flac.set_album_cover(cover);
+            tags.set_album_cover(cover);
         }
 
-        let mut flactag: metaflac::Tag = flac.into();
+        let lyrics = if self.download_lyrics && track_info.lyrics {
+            let lyrics = self
+                .get_lyrics(&track_info.track_id, filepath)
+                .context("Failed to get lyrics")?;
+            if lyrics.text.is_empty() {
+                tracing::warn!("No lyrics for {}", filepath.display());
+            }
+            Some(lyrics)
+        } else {
+            None
+        };
+
+        match self.quality {
+            Quality::Flac => {
+                Self::write_extra_tags_flac(
+                    filepath,
+                    track_info,
+                    release_info,
+                    tags,
+                    &lyrics,
+                )?;
+            },
+            Quality::MP3High | Quality::MP3Mid => {
+                Self::write_extra_tags_mp3(
+                    filepath,
+                    track_info,
+                    release_info,
+                    tags,
+                    &lyrics,
+                )?;
+            },
+        }
+
+        Ok(())
+    }
+
+    fn write_extra_tags_flac(
+        filepath: &Path,
+        track_info: &TrackInfo,
+        release_info: &ReleaseInfo,
+        tags: Box<dyn AudioTag + Send + Sync>,
+        lyrics: &Option<Lyrics>,
+    ) -> anyhow::Result<()> {
+        let mut flactag: metaflac::Tag = tags.into();
         let vorbis_tags = flactag.vorbis_comments_mut();
 
-        vorbis_tags.set("DATE", vec![&release_info.date]);
-        vorbis_tags.set(
-            "YEAR",
-            vec![&release_info.date.chars().take(4).collect::<String>()],
-        );
         vorbis_tags.set("COPYRIGHT", vec![&release_info.label]);
-
         vorbis_tags.set("RELEASE_ID", vec![&track_info.release_id]);
         vorbis_tags.set("TRACK_ID", vec![&track_info.track_id]);
 
-        if self.download_lyrics && track_info.lyrics {
-            let lyrics = self
-                .get_lyrics(&track_info.track_id)
-                .context("Failed to get lyrics")?;
-            if lyrics.is_empty() {
-                tracing::warn!("No lyrics for {}", filepath.display());
-            } else {
-                vorbis_tags.set_lyrics(vec![lyrics]);
+        if let Some(lyrics) = lyrics {
+            if !lyrics.text.is_empty() {
+                vorbis_tags.set_lyrics(vec![&lyrics.text]);
             }
         }
 
-        let mut flac: FlacTag = flactag.into();
-        flac.write_to_path(
+        let mut tags: FlacTag = flactag.into();
+        tags.write_to_path(
             filepath.to_str().context("filepath is not valid string")?,
         )
         .context("Failed to write tags to file")?;
+        Ok(())
+    }
 
+    fn write_extra_tags_mp3(
+        filepath: &Path,
+        _track_info: &TrackInfo,
+        release_info: &ReleaseInfo,
+        tags: Box<dyn AudioTag + Send + Sync>,
+        lyrics: &Option<Lyrics>,
+    ) -> anyhow::Result<()> {
+        let mut mp3tags: id3::Tag = tags.into();
+
+        mp3tags.set_text("TCOP", &release_info.label);
+
+        if let Some(lyrics) = lyrics {
+            if !lyrics.text.is_empty() {
+                mp3tags.add_frame(frame::Lyrics {
+                    lang: String::new(),
+                    description: String::new(),
+                    text: lyrics.text.clone(),
+                });
+            }
+        }
+
+        let mut tags: Id3v2Tag = mp3tags.into();
+        tags.write_to_path(
+            filepath.to_str().context("filepath is not valid string")?,
+        )
+        .context("Failed to write tags to file")?;
         Ok(())
     }
 }

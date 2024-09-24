@@ -9,6 +9,7 @@ use serde::Serializer;
 use serde_json::to_value;
 use tracing::level_filters::LevelFilter;
 
+use crate::zvuk::Quality;
 use crate::zvuk::ZVUK_DEFAULT_COVER_RESIZE_COMMAND;
 
 /// Download albums and tracks in high quality (FLAC) from Zvuk.com
@@ -26,6 +27,10 @@ pub struct Config {
     #[serde(serialize_with = "mask")]
     #[arg(long, env, hide_env_values = true)]
     pub token: String,
+
+    /// Quality of tracks to grab
+    #[arg(long, short, env, value_enum, default_value_t = Quality::Flac)]
+    pub quality: Quality,
 
     /// Embed album cover into tracks
     #[arg(
