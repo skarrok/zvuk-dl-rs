@@ -2,9 +2,19 @@
 
 ## Unreleased
 
+### Fixed
+
+- 🐛 sanitize folder and file path ([#1](https://github.com/skarrok/zvuk-dl-rs/issues/1))
+
+  replace reserved characters with underscores `_`
+
+  reserved characters:
+  - on windows: `<`, `>`, `:`, `"`, `/`, `\\`, `|`, `?`, `*`
+  - on unix: `/`
+
 ## v0.2.0
 
-### Features
+### Added
 
 - ✨ Add support for grabbing tracks in MP3 format
 

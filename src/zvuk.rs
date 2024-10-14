@@ -533,12 +533,13 @@ impl Client {
         track_info: &TrackInfo,
         release_info: &ReleaseInfo,
     ) -> anyhow::Result<()> {
-        let folder = PathBuf::from(format!(
+        let folder = sanitize_path(&format!(
             "{} - {} ({})",
             release_info.author,
             release_info.album,
             release_info.date.chars().take(4).collect::<String>()
         ));
+        let folder = PathBuf::from(folder);
 
         std::fs::create_dir_all(&folder).with_context(|| {
             format!("Failed to create folder {}", folder.display())
@@ -548,12 +549,13 @@ impl Client {
         self.download_cover(&track_info.image, &cover_path)
             .context("Failed to download and process album cover")?;
 
-        let filename = PathBuf::from(format!(
+        let filename = sanitize_path(&format!(
             "{:02} - {}.{}",
             track_info.number,
             track_info.name,
             self.quality.extension()
         ));
+        let filename = PathBuf::from(filename);
         let filepath = folder.join(filename);
 
         tracing::info!("Downloading {}", filepath.display());
@@ -755,4 +757,14 @@ pub fn download(config: &Config) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn sanitize_path(path: &str) -> String {
+    path.replace(['<', '>', ':', '"', '/', '\\', '|', '?', '*'], "_")
+}
+
+#[cfg(not(target_os = "windows"))]
+fn sanitize_path(path: &str) -> String {
+    path.replace(['/'], "_")
 }
