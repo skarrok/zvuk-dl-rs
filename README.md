@@ -2,7 +2,8 @@
 
 Download albums and tracks in high quality (FLAC or MP3) from [zvuk.com](https://zvuk.com)
 
-NOTICE: You must have zvuk.com account and paid subscription to use this tool.
+> [!IMPORTANT]
+> You must have zvuk.com account and paid subscription to use this tool.
 
 ## Quickstart
 
@@ -28,7 +29,8 @@ By default, zvuk-dl downloads and embeds lyrics and downloads album cover.
 You can enable cover embedding with `--embed-cover` option.
 Album cover is resized to be less than 1MB using imagemagick.
 
-NOTICE: If you don't have [imagemagick](https://imagemagick.org) installed, disable
+> [!WARNING]
+> If you don't have [imagemagick](https://imagemagick.org) installed, disable
 cover resizing with `--resize-cover=false` or command will fail.
 
 ## Getting your personal token
