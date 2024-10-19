@@ -1,0 +1,46 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: -C instrument-coverage
+  LLVM_PROFILE_FILE: zvuk-%p-%m.profraw
+  RUST_BACKTRACE: 1
+
+jobs:
+  format-check:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+  clippy-build-and-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-14, ubuntu-24.04, windows-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,llvm-tools-preview
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo clippy && cargo test
+        run: |
+          cargo clippy
+          cargo test
