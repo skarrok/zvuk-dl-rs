@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.2.2
+
 ### Fixed
 
 - 🐛 zvuk authorization error ([#2](https://github.com/skarrok/zvuk-dl-rs/issues/2))
