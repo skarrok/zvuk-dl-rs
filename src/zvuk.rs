@@ -493,7 +493,7 @@ impl Client {
             .get("result")
             .and_then(|x| x.get("type"))
             .and_then(|x| x.as_str())
-            .context("lyrics type is not a string")?
+            .unwrap_or("lyrics")
             .to_string();
 
         let lyrics_type = if type_ == "subtitle" {
@@ -669,7 +669,7 @@ impl Client {
                     track_info,
                     release_info,
                     tags,
-                    &lyrics,
+                    lyrics.as_ref(),
                 )?;
             },
             Quality::MP3High | Quality::MP3Mid => {
@@ -678,7 +678,7 @@ impl Client {
                     track_info,
                     release_info,
                     tags,
-                    &lyrics,
+                    lyrics.as_ref(),
                 )?;
             },
         }
@@ -691,7 +691,7 @@ impl Client {
         track_info: &TrackInfo,
         release_info: &ReleaseInfo,
         tags: Box<dyn AudioTag + Send + Sync>,
-        lyrics: &Option<Lyrics>,
+        lyrics: Option<&Lyrics>,
     ) -> anyhow::Result<()> {
         let mut flactag: metaflac::Tag = tags.into();
         let vorbis_tags = flactag.vorbis_comments_mut();
@@ -719,7 +719,7 @@ impl Client {
         _track_info: &TrackInfo,
         release_info: &ReleaseInfo,
         tags: Box<dyn AudioTag + Send + Sync>,
-        lyrics: &Option<Lyrics>,
+        lyrics: Option<&Lyrics>,
     ) -> anyhow::Result<()> {
         let mut mp3tags: id3::Tag = tags.into();
 

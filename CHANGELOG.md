@@ -10,6 +10,10 @@
     Send user agent with every request. By default it's from latest chrome
     on windows. Can be changed with --user-agent flag.
 
+- 🐛 don't skip lyrics with type `null`
+
+  treat it as `lyrics` type
+
 ## v0.2.1
 
 ### Fixed
