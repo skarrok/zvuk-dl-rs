@@ -11,6 +11,7 @@ use tracing::level_filters::LevelFilter;
 
 use crate::zvuk::Quality;
 use crate::zvuk::ZVUK_DEFAULT_COVER_RESIZE_COMMAND;
+use crate::zvuk::ZVUK_USER_AGENT;
 
 /// Download albums and tracks in high quality (FLAC) from Zvuk.com
 #[derive(Debug, Parser, Serialize)]
@@ -81,6 +82,14 @@ pub struct Config {
         default_value_t = ZVUK_DEFAULT_COVER_RESIZE_COMMAND.to_string(),
     )]
     pub resize_command: String,
+
+    /// User Agent
+    #[arg(
+        long,
+        env,
+        default_value_t = ZVUK_USER_AGENT.to_string(),
+    )]
+    pub user_agent: String,
 
     /// How long to wait between getting track links
     #[arg(

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- 🐛 zvuk authorization error ([#2](https://github.com/skarrok/zvuk-dl-rs/issues/2))
+
+    Keep cookies between requests.
+    Send user agent with every request. By default it's from latest chrome
+    on windows. Can be changed with --user-agent flag.
+
 ## v0.2.1
 
 ### Fixed

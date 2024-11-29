@@ -12,11 +12,16 @@ use audiotags::{
 use chrono::{Datelike, NaiveDate};
 use clap::ValueEnum;
 use id3::{frame, TagLike};
-use reqwest::header::COOKIE;
+use reqwest::{
+    cookie::Jar,
+    header::{HeaderMap, USER_AGENT},
+    Url,
+};
 use serde::Serialize;
 
 use crate::config::Config;
 
+const ZVUK_HOST: &str = "https://zvuk.com";
 const ZVUK_RELEASE_PREFIX: &str = "https://zvuk.com/release/";
 const ZVUK_TRACKS_PREFIX: &str = "https://zvuk.com/track/";
 const ZVUK_RELEASES_URL: &str = "https://zvuk.com/api/tiny/releases";
@@ -27,6 +32,8 @@ const ZVUK_LYRICS_URL: &str = "https://zvuk.com/api/tiny/lyrics";
 
 pub const ZVUK_DEFAULT_COVER_RESIZE_COMMAND: &str =
     "magick {source} -define jpeg:extent=1MB {target}";
+
+pub const ZVUK_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 #[derive(Debug)]
 struct ReleaseInfo {
@@ -101,12 +108,20 @@ struct Client {
     quality: Quality,
 
     pause_between_getting_track_links: Duration,
-    cookie_token: String,
+    default_headers: HeaderMap,
     http: reqwest::blocking::Client,
 }
 
 impl Client {
     fn new(config: &Config) -> Self {
+        let jar = Jar::default();
+        jar.add_cookie_str(
+            format!("auth={}", config.token).as_str(),
+            &ZVUK_HOST.parse::<Url>().unwrap(),
+        );
+        let mut default_headers = HeaderMap::new();
+        default_headers.append(USER_AGENT, config.user_agent.parse().unwrap());
+
         Self {
             embed_cover: config.embed_cover,
             resize_cover: config.resize_cover,
@@ -117,8 +132,11 @@ impl Client {
                 .pause_between_getting_track_links,
             quality: config.quality.clone(),
 
-            cookie_token: format!("auth={}", config.token),
-            http: reqwest::blocking::Client::new(),
+            default_headers,
+            http: reqwest::blocking::Client::builder()
+                .cookie_provider(jar.into())
+                .build()
+                .unwrap(),
         }
     }
 
@@ -131,7 +149,7 @@ impl Client {
             .http
             .get(ZVUK_LABELS_URL)
             .query(&[("ids", label_ids.join(","))])
-            .header(COOKIE, &self.cookie_token)
+            .headers(self.default_headers.clone())
             .send()
             .context("Failed to download labels metadata")?;
         let body = response
@@ -170,7 +188,7 @@ impl Client {
             .http
             .get(ZVUK_RELEASES_URL)
             .query(&[("ids", release_ids.join(","))])
-            .header(COOKIE, &self.cookie_token)
+            .headers(self.default_headers.clone())
             .send()
             .context("Failed to download releases metadata")?;
 
@@ -323,7 +341,7 @@ impl Client {
             .http
             .get(ZVUK_TRACKS_URL)
             .query(&[("ids", track_ids.join(","))])
-            .header(COOKIE, &self.cookie_token)
+            .headers(self.default_headers.clone())
             .send()
             .context("Failed to donwload tracks metadata")?;
 
@@ -423,7 +441,7 @@ impl Client {
                     ("quality", &self.quality.to_string()),
                     ("id", track_id),
                 ])
-                .header(COOKIE, &self.cookie_token)
+                .headers(self.default_headers.clone())
                 .send()
                 .context("Failed to download track links")?;
 
@@ -456,7 +474,7 @@ impl Client {
             .http
             .get(ZVUK_LYRICS_URL)
             .query(&[("track_id", track_id)])
-            .header(COOKIE, &self.cookie_token)
+            .headers(self.default_headers.clone())
             .send()
             .context("Failed to download lyrics")?;
         let body = response
@@ -731,14 +749,10 @@ pub fn download(config: &Config) -> anyhow::Result<()> {
     let mut track_ids = Vec::new();
 
     for url in &config.urls {
-        if url.starts_with(ZVUK_RELEASE_PREFIX) {
-            if let Some(url) = url.strip_prefix(ZVUK_RELEASE_PREFIX) {
-                release_ids.push(url.to_owned());
-            }
-        } else if url.starts_with(ZVUK_TRACKS_PREFIX) {
-            if let Some(url) = url.strip_prefix(ZVUK_TRACKS_PREFIX) {
-                track_ids.push(url.to_owned());
-            }
+        if let Some(url) = url.strip_prefix(ZVUK_RELEASE_PREFIX) {
+            release_ids.push(url.to_owned());
+        } else if let Some(url) = url.strip_prefix(ZVUK_TRACKS_PREFIX) {
+            track_ids.push(url.to_owned());
         } else {
             tracing::warn!(
                 "This doens't look like zvuk.com URL, skipping: {}",
