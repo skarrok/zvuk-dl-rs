@@ -1,5 +1,7 @@
 # Changelog
 
+<!-- next-header -->
+
 ## Unreleased
 
 ## v0.2.2
