@@ -60,7 +60,7 @@ struct TrackInfo {
     has_flac: bool,
 }
 
-#[derive(ValueEnum, Debug, Clone, Serialize, PartialEq)]
+#[derive(ValueEnum, Debug, Clone, Serialize, PartialEq, Eq, Copy)]
 pub enum Quality {
     Flac,
     // 320 kbps
@@ -70,7 +70,7 @@ pub enum Quality {
 }
 
 impl Quality {
-    fn extension(&self) -> String {
+    fn extension(self) -> String {
         let string = match self {
             Self::Flac => "flac",
             Self::MP3High | Self::MP3Mid => "mp3",
@@ -132,7 +132,7 @@ impl Client {
             resize_command: config.resize_command.clone(),
             pause_between_getting_track_links: config
                 .pause_between_getting_track_links,
-            quality: config.quality.clone(),
+            quality: config.quality,
             output_dir: PathBuf::from(&config.output_dir),
 
             default_headers,
@@ -327,7 +327,7 @@ impl Client {
                 releases_
                     .get(&track_info.release_id)
                     .context("no release info")?,
-                actual_quality.clone(),
+                *actual_quality,
             );
             if let Err(e) = result {
                 tracing::warn!(
@@ -427,6 +427,78 @@ impl Client {
         Ok(tracks)
     }
 
+    fn determine_effective_quality(&self, track_info: &TrackInfo) -> Quality {
+        if self.quality == Quality::Flac && track_info.has_flac {
+            Quality::Flac
+        } else if self.quality == Quality::Flac
+            || self.quality == Quality::MP3High
+        {
+            // Fallback from FLAC or if MP3High requested
+            Quality::MP3High
+        } else {
+            // Must be MP3Mid requested
+            Quality::MP3Mid
+        }
+    }
+
+    fn log_quality_selection(
+        &self,
+        track_id: &str,
+        effective_quality: Quality,
+        has_flac: bool,
+    ) {
+        if effective_quality == self.quality {
+            tracing::debug!(
+                "Track id {track_id}: Using requested {} quality (FLAC available: {})",
+                effective_quality,
+                has_flac
+            );
+        } else {
+            tracing::info!(
+                "Track id {track_id}: Falling back to {} quality (FLAC available: {})",
+                effective_quality,
+                has_flac
+            );
+        }
+    }
+
+    fn fetch_track_link(
+        &self,
+        track_id: &str,
+        effective_quality: Quality,
+    ) -> anyhow::Result<String> {
+        let response = self
+            .http
+            .get(ZVUK_DOWNLOAD_URL)
+            .query(&[
+                ("quality", effective_quality.to_string().as_str()),
+                ("id", track_id),
+            ])
+            .headers(self.default_headers.clone())
+            .send()
+            .with_context(|| {
+                format!("Failed to download track link for id={track_id}")
+            })?;
+
+        let body =
+            response.json::<serde_json::Value>().with_context(|| {
+                format!("Failed to parse track link for id={track_id}")
+            })?;
+        tracing::trace!(
+            "{ZVUK_DOWNLOAD_URL} response for id={track_id}: {body:#?}"
+        );
+
+        let link = body
+            .get("result")
+            .and_then(|x| x.get("stream"))
+            .and_then(|x| x.as_str())
+            .with_context(|| {
+                format!("stream is not a string for id={track_id}")
+            })?;
+
+        Ok(link.to_string())
+    }
+
     fn get_tracks_links(
         &self,
         metadata: &HashMap<String, TrackInfo>,
@@ -439,65 +511,16 @@ impl Client {
 
         for (track_id, track_info) in metadata {
             let effective_quality =
-                if self.quality == Quality::Flac && track_info.has_flac {
-                    Quality::Flac
-                } else if self.quality == Quality::Flac
-                    || self.quality == Quality::MP3High
-                {
-                    // Fallback from FLAC or if MP3High requested
-                    Quality::MP3High
-                } else {
-                    // Must be MP3Mid requested
-                    Quality::MP3Mid
-                };
-
-            if effective_quality != self.quality {
-                tracing::info!(
-                    "Track id {track_id}: Falling back to {} quality (FLAC available: {})",
-                    effective_quality,
-                    track_info.has_flac
-                );
-            } else {
-                tracing::debug!(
-                    "Track id {track_id}: Using requested {} quality (FLAC available: {})",
-                    effective_quality,
-                    track_info.has_flac
-                );
-            }
-
-            let response = self
-                .http
-                .get(ZVUK_DOWNLOAD_URL)
-                .query(&[
-                    ("quality", &effective_quality.to_string()), // Use determined quality
-                    ("id", track_id),
-                ])
-                .headers(self.default_headers.clone())
-                .send()
-                .with_context(|| {
-                    format!("Failed to download track link for id={track_id}")
-                })?;
-
-            let body =
-                response.json::<serde_json::Value>().with_context(|| {
-                    format!("Failed to parse track link for id={track_id}")
-                })?;
-            tracing::trace!(
-                "{ZVUK_DOWNLOAD_URL} response for id={track_id}: {body:#?}"
+                self.determine_effective_quality(track_info);
+            self.log_quality_selection(
+                track_id,
+                effective_quality,
+                track_info.has_flac,
             );
 
-            let link = body
-                .get("result")
-                .and_then(|x| x.get("stream"))
-                .and_then(|x| x.as_str())
-                .with_context(|| {
-                    format!("stream is not a string for id={track_id}")
-                })?;
+            let link = self.fetch_track_link(track_id, effective_quality)?;
 
-            urls.insert(
-                track_id.clone(),
-                (link.to_string(), effective_quality),
-            ); // Store link and actual quality
+            urls.insert(track_id.clone(), (link, effective_quality));
 
             std::thread::sleep(self.pause_between_getting_track_links);
         }
@@ -643,7 +666,7 @@ impl Client {
             &cover_path,
             track_info,
             release_info,
-            &actual_quality,
+            actual_quality,
         )?;
 
         Ok(())
@@ -655,7 +678,7 @@ impl Client {
         cover_path: &PathBuf,
         track_info: &TrackInfo,
         release_info: &ReleaseInfo,
-        actual_quality: &Quality,
+        actual_quality: Quality,
     ) -> anyhow::Result<()> {
         let mut tags: Box<dyn AudioTag + Send + Sync> = match actual_quality {
             Quality::Flac => FlacTag::read_from_path(filepath).map_or_else(
