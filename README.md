@@ -80,8 +80,10 @@ Options:
           [default: "."]
 
   -q, --quality <QUALITY>
-          Quality of tracks to grab.
-          If the requested quality is unavailable, the next best quality will be downloaded automatically (FLAC -> MP3High -> MP3Mid).
+    /// Quality of tracks to grab
+    ///
+    /// If the requested quality is unavailable, the next best quality will be downloaded automatically (flac -> mp3-high -> mp3-mid).
+
 
           [env: QUALITY=]
           [default: flac]
