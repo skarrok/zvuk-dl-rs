@@ -427,17 +427,11 @@ impl Client {
         Ok(tracks)
     }
 
-    fn determine_effective_quality(&self, track_info: &TrackInfo) -> Quality {
-        if self.quality == Quality::Flac && track_info.has_flac {
-            Quality::Flac
-        } else if self.quality == Quality::Flac
-            || self.quality == Quality::MP3High
-        {
-            // Fallback from FLAC or if MP3High requested
-            Quality::MP3High
-        } else {
-            // Must be MP3Mid requested
-            Quality::MP3Mid
+    const fn determine_effective_quality(&self, track_info: &TrackInfo) -> Quality {
+        match self.quality {
+            Quality::Flac if track_info.has_flac => Quality::Flac,
+            Quality::Flac | Quality::MP3High => Quality::MP3High, // Fallback from FLAC or if MP3High requested
+            Quality::MP3Mid => Quality::MP3Mid, // Must be MP3Mid requested
         }
     }
 
