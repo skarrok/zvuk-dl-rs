@@ -17,21 +17,21 @@ export TOKEN=YOUR_TOKEN
 # or provide it as an argument to command
 # zvuk-dl --token YOUR_TOKEN ...
 
-# download track and album
-zvuk-dl https://zvuk.com/track/128672726 https://zvuk.com/release/29970563
+# download track and album to the 'downloads' directory
+zvuk-dl -o ./downloads https://zvuk.com/track/128672726 https://zvuk.com/release/29970563
 ```
 
-Tracks are downloaded to current directory with
-`Author - Album (Year)/## - Title.flac` format and tags are added
+Tracks are downloaded to the specified output directory (or current directory by default) with
+`Author - Album (Year)/## - Title.ext` format (`.flac` or `.mp3` depending on downloaded quality) and tags are added
 automatically.
 
 By default, zvuk-dl downloads and embeds lyrics and downloads album cover.
-You can enable cover embedding with `--embed-cover` option.
-Album cover is resized to be less than 1MB using imagemagick.
+You can enable cover embedding with `--embed-cover=true` (it's disabled by default).
+By default, the album cover is resized to be less than 2MB using imagemagick if it exceeds this size.
 
 > [!WARNING]
 > If you don't have [imagemagick](https://imagemagick.org) installed, disable
-cover resizing with `--resize-cover=false` or command will fail.
+> cover resizing with `--resize-cover=false` or command will fail.
 
 ## Getting your personal token
 
@@ -44,12 +44,12 @@ Your token will be in there under `auth` name.
 For example in Chrome:
 
 1. Click the Three-dot menu button to the right of the address bar and select
-More Tools > Developer Tools.
+   More Tools > Developer Tools.
 2. In the top bar select Application tab.
 3. In the left sidebar under Storage -> Cookies select `https://zvuk.com`
 4. In the right pane select `auth` cookie and copy it.
 5. Write it to `.env` file in the current directory with
-`echo TOKEN=YOUR_TOKEN > .env`
+   `echo TOKEN=YOUR_TOKEN > .env`
 
 ## Configuration
 
@@ -73,8 +73,15 @@ Options:
 
           [env: TOKEN]
 
+  -o, --output-dir <OUTPUT_DIR>
+          Output directory
+
+          [env: OUTPUT_DIR=]
+          [default: "."]
+
   -q, --quality <QUALITY>
-          Quality of tracks to grab
+          Quality of tracks to grab.
+          If the requested quality is unavailable, the next best quality will be downloaded automatically (FLAC -> MP3High -> MP3Mid).
 
           [env: QUALITY=]
           [default: flac]
@@ -112,6 +119,12 @@ Options:
 
           [env: RESIZE_COMMAND=]
           [default: "magick {source} -define jpeg:extent=1MB {target}"]
+
+      --user-agent <USER_AGENT>
+          User Agent
+
+          [env: USER_AGENT=]
+          [default: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"]
 
       --log-level <LOG_LEVEL>
           Verbosity of logging
