@@ -57,9 +57,10 @@ struct TrackInfo {
     number: u32,
     image: String,
     lyrics: bool,
+    has_flac: bool,
 }
 
-#[derive(ValueEnum, Debug, Clone, Serialize)]
+#[derive(ValueEnum, Debug, Clone, Serialize, PartialEq)]
 pub enum Quality {
     Flac,
     // 320 kbps
@@ -106,6 +107,7 @@ struct Client {
     download_lyrics: bool,
     resize_command: String,
     quality: Quality,
+    output_dir: PathBuf,
 
     pause_between_getting_track_links: Duration,
     default_headers: HeaderMap,
@@ -131,6 +133,7 @@ impl Client {
             pause_between_getting_track_links: config
                 .pause_between_getting_track_links,
             quality: config.quality.clone(),
+            output_dir: PathBuf::from(&config.output_dir),
 
             default_headers,
             http: reqwest::blocking::Client::builder()
@@ -294,7 +297,7 @@ impl Client {
             .get_tracks_metadata(track_ids)
             .context("Failed to get tracks metadata")?;
         let links = self
-            .get_tracks_links(track_ids)
+            .get_tracks_links(&metadata)
             .context("Failed to get tracks download links")?;
 
         if metadata.len() != links.len() {
@@ -316,12 +319,15 @@ impl Client {
         };
 
         for (track_id, track_info) in metadata {
+            let (link, actual_quality) =
+                links.get(&track_id).context("no link")?;
             let result = self.get_and_save_track(
-                links.get(&track_id).context("no link")?,
+                link.as_str(),
                 &track_info,
                 releases_
                     .get(&track_info.release_id)
                     .context("no release info")?,
+                actual_quality.clone(),
             );
             if let Err(e) = result {
                 tracing::warn!(
@@ -358,17 +364,11 @@ impl Client {
             .and_then(|x| x.as_object())
             .context("tracks is not an object")?
         {
-            if matches!(self.quality, Quality::Flac)
-                && !track_info
-                    .get("has_flac")
-                    .and_then(serde_json::Value::as_bool)
-                    .context("has_flac is not bool")?
-            {
-                tracing::warn!(
-                    "track id {track_id} doesn't have FLAC quality available"
-                );
-                continue;
-            }
+            let has_flac = track_info
+                .get("has_flac")
+                .and_then(serde_json::Value::as_bool)
+                .context("has_flac is not bool")?;
+
             tracks.insert(
                 track_id.clone(),
                 TrackInfo {
@@ -419,6 +419,7 @@ impl Client {
                         .get("lyrics")
                         .and_then(serde_json::Value::as_bool)
                         .unwrap_or(false),
+                    has_flac,
                 },
             );
         }
@@ -428,36 +429,75 @@ impl Client {
 
     fn get_tracks_links(
         &self,
-        track_ids: &[String],
-    ) -> anyhow::Result<HashMap<String, String>> {
-        tracing::info!("Getting download urls in {} quality", self.quality);
+        metadata: &HashMap<String, TrackInfo>,
+    ) -> anyhow::Result<HashMap<String, (String, Quality)>> {
+        tracing::info!(
+            "Getting download urls (requested: {} quality)",
+            self.quality
+        );
         let mut urls = HashMap::new();
 
-        for track_id in track_ids {
+        for (track_id, track_info) in metadata {
+            let effective_quality =
+                if self.quality == Quality::Flac && track_info.has_flac {
+                    Quality::Flac
+                } else if self.quality == Quality::Flac
+                    || self.quality == Quality::MP3High
+                {
+                    // Fallback from FLAC or if MP3High requested
+                    Quality::MP3High
+                } else {
+                    // Must be MP3Mid requested
+                    Quality::MP3Mid
+                };
+
+            if effective_quality != self.quality {
+                tracing::info!(
+                    "Track id {track_id}: Falling back to {} quality (FLAC available: {})",
+                    effective_quality,
+                    track_info.has_flac
+                );
+            } else {
+                tracing::debug!(
+                    "Track id {track_id}: Using requested {} quality (FLAC available: {})",
+                    effective_quality,
+                    track_info.has_flac
+                );
+            }
+
             let response = self
                 .http
                 .get(ZVUK_DOWNLOAD_URL)
                 .query(&[
-                    ("quality", &self.quality.to_string()),
+                    ("quality", &effective_quality.to_string()), // Use determined quality
                     ("id", track_id),
                 ])
                 .headers(self.default_headers.clone())
                 .send()
-                .context("Failed to download track links")?;
+                .with_context(|| {
+                    format!("Failed to download track link for id={track_id}")
+                })?;
 
-            let body = response
-                .json::<serde_json::Value>()
-                .context("Failed to prase track links")?;
-            tracing::trace!("{ZVUK_DOWNLOAD_URL} response: {body:#?}");
+            let body =
+                response.json::<serde_json::Value>().with_context(|| {
+                    format!("Failed to parse track link for id={track_id}")
+                })?;
+            tracing::trace!(
+                "{ZVUK_DOWNLOAD_URL} response for id={track_id}: {body:#?}"
+            );
+
+            let link = body
+                .get("result")
+                .and_then(|x| x.get("stream"))
+                .and_then(|x| x.as_str())
+                .with_context(|| {
+                    format!("stream is not a string for id={track_id}")
+                })?;
 
             urls.insert(
                 track_id.clone(),
-                body.get("result")
-                    .and_then(|x| x.get("stream"))
-                    .and_then(|x| x.as_str())
-                    .context("stream is not a string")?
-                    .to_string(),
-            );
+                (link.to_string(), effective_quality),
+            ); // Store link and actual quality
 
             std::thread::sleep(self.pause_between_getting_track_links);
         }
@@ -550,20 +590,21 @@ impl Client {
         url: &str,
         track_info: &TrackInfo,
         release_info: &ReleaseInfo,
+        actual_quality: Quality,
     ) -> anyhow::Result<()> {
-        let folder = sanitize_path(&format!(
+        let directory_name = sanitize_path(&format!(
             "{} - {} ({})",
             release_info.author,
             release_info.album,
             release_info.date.chars().take(4).collect::<String>()
         ));
-        let folder = PathBuf::from(folder);
+        let directory_path = self.output_dir.join(directory_name);
 
-        std::fs::create_dir_all(&folder).with_context(|| {
-            format!("Failed to create folder {}", folder.display())
+        std::fs::create_dir_all(&directory_path).with_context(|| {
+            format!("Failed to create directory {}", directory_path.display())
         })?;
 
-        let cover_path = folder.join("cover.jpg");
+        let cover_path = directory_path.join("cover.jpg");
         self.download_cover(&track_info.image, &cover_path)
             .context("Failed to download and process album cover")?;
 
@@ -571,10 +612,18 @@ impl Client {
             "{:02} - {}.{}",
             track_info.number,
             track_info.name,
-            self.quality.extension()
+            actual_quality.extension()
         ));
         let filename = PathBuf::from(filename);
-        let filepath = folder.join(filename);
+        let filepath = directory_path.join(filename);
+
+        if filepath.exists() {
+            tracing::info!(
+                "File already exists, skipping: {}",
+                filepath.display()
+            );
+            return Ok(());
+        }
 
         tracing::info!("Downloading {}", filepath.display());
 
@@ -589,7 +638,13 @@ impl Client {
         )
         .context("Failed to save track on disk")?;
 
-        self.write_tags(&filepath, &cover_path, track_info, release_info)?;
+        self.write_tags(
+            &filepath,
+            &cover_path,
+            track_info,
+            release_info,
+            &actual_quality,
+        )?;
 
         Ok(())
     }
@@ -600,8 +655,9 @@ impl Client {
         cover_path: &PathBuf,
         track_info: &TrackInfo,
         release_info: &ReleaseInfo,
+        actual_quality: &Quality,
     ) -> anyhow::Result<()> {
-        let mut tags: Box<dyn AudioTag + Send + Sync> = match self.quality {
+        let mut tags: Box<dyn AudioTag + Send + Sync> = match actual_quality {
             Quality::Flac => FlacTag::read_from_path(filepath).map_or_else(
                 |_| {
                     tracing::trace!("Failed to read FLAC tag from file");
@@ -662,7 +718,7 @@ impl Client {
             None
         };
 
-        match self.quality {
+        match actual_quality {
             Quality::Flac => {
                 Self::write_extra_tags_flac(
                     filepath,
