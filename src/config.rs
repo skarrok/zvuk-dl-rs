@@ -34,6 +34,8 @@ pub struct Config {
     pub output_dir: String,
 
     /// Quality of tracks to grab
+    ///
+    /// If the requested quality is unavailable, the next best quality will be downloaded automatically (flac -> mp3-high -> mp3-mid).
     #[arg(long, short, env, value_enum, default_value_t = Quality::Flac)]
     pub quality: Quality,
 
