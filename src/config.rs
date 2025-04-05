@@ -29,7 +29,13 @@ pub struct Config {
     #[arg(long, env, hide_env_values = true)]
     pub token: String,
 
+    /// Output directory
+    #[arg(long, short, env, default_value_t = String::from("."))]
+    pub output_dir: String,
+
     /// Quality of tracks to grab
+    ///
+    /// If the requested quality is unavailable, the next best quality will be downloaded automatically (flac -> mp3-high -> mp3-mid).
     #[arg(long, short, env, value_enum, default_value_t = Quality::Flac)]
     pub quality: Quality,
 
