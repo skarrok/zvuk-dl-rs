@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+## v0.3.0
+
 ### Added
 
 - feat: ✨ add output directory option by @xzeldon
