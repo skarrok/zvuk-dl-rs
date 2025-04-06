@@ -4,6 +4,19 @@
 
 ## Unreleased
 
+### Added
+
+- feat: ✨ add output directory option by @xzeldon
+
+  Introduce the --output-dir (`-o`) flag to allow specifying the
+  download destination directory. Defaults to the current directory.
+
+- feat: ✨ add quality fallback by @xzeldon
+
+  Implement automatic quality fallback: If the requested quality is
+  unavailable, the application will now attempt to download the next
+  best quality available (FLAC -> MP3High -> MP3Mid).
+
 ## v0.2.2
 
 ### Fixed
