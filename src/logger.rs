@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
@@ -17,8 +18,11 @@ pub fn setup(
     let mut default_filter =
         format!("{}={log_level}", env!("CARGO_PKG_NAME").replace('-', "_"));
     if let Some(bin_name) = bin_name {
-        default_filter
-            .push_str(&format!(",{}={log_level}", bin_name.replace('-', "_")));
+        let _ = write!(
+            default_filter,
+            ",{}={log_level}",
+            bin_name.replace('-', "_")
+        );
     }
 
     let filter = EnvFilter::builder().try_from_env().unwrap_or_else(|_| {
