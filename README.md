@@ -1,4 +1,4 @@
-# zvuk-dl ![Build and Test](https://github.com/skarrok/zvuk-dl-rs/actions/workflows/build_and_test.yml/badge.svg) ![Release](https://github.com/skarrok/zvuk-dl-rs/actions/workflows/release.yml/badge.svg)
+# zvuk-dl ![Build and Test](https://github.com/skarrok/zvuk-dl-rs/actions/workflows/build_and_test.yml/badge.svg) [![Coverage Status](https://coveralls.io/repos/github/skarrok/zvuk-dl-rs/badge.svg?branch=main)](https://coveralls.io/github/skarrok/zvuk-dl-rs?branch=main) ![Release](https://github.com/skarrok/zvuk-dl-rs/actions/workflows/release.yml/badge.svg)
 
 Download albums and tracks in high quality (FLAC or MP3) from [zvuk.com](https://zvuk.com)
 
