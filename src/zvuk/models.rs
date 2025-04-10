@@ -73,7 +73,7 @@ pub(super) struct ZvukTrack {
     highest_quality: String,
     pub(super) id: i64,
     pub(super) image: ZvukImage,
-    pub(super) lyrics: bool,
+    pub(super) lyrics: Option<bool>,
     pub(super) position: i64,
     price: i64,
     pub(super) release_id: i64,

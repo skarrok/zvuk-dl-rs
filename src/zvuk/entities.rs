@@ -71,7 +71,9 @@ pub(super) struct TrackInfo {
 impl TryFrom<super::models::ZvukRelease> for ReleaseInfo {
     type Error = anyhow::Error;
 
-    fn try_from(value: super::models::ZvukRelease) -> Result<Self, Self::Error> {
+    fn try_from(
+        value: super::models::ZvukRelease,
+    ) -> Result<Self, Self::Error> {
         let track_ids: Vec<String> = value
             .track_ids
             .iter()
@@ -102,8 +104,27 @@ impl TryFrom<super::models::ZvukTrack> for TrackInfo {
             genre: value.genres.join(", "),
             number: value.position.try_into()?,
             image: value.image.src.replace("&size={size}&ext=jpg", ""),
-            lyrics: value.lyrics,
+            lyrics: value.lyrics.unwrap_or(false),
             has_flac: value.has_flac,
+        })
+    }
+}
+
+impl TryFrom<super::models::ZvukLyrics> for Lyrics {
+    type Error = anyhow::Error;
+
+    fn try_from(
+        value: super::models::ZvukLyrics,
+    ) -> Result<Self, Self::Error> {
+        let lyrics_type = if value.type_ == "subtitle" {
+            LyricsKind::Subtitle
+        } else {
+            LyricsKind::Lyrics
+        };
+
+        Ok(Self {
+            kind: lyrics_type,
+            text: value.lyrics,
         })
     }
 }
