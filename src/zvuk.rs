@@ -154,7 +154,8 @@ impl Client {
             .query(&[("ids", label_ids.join(","))])
             .headers(self.default_headers.clone())
             .send()
-            .context("Failed to download labels metadata")?;
+            .context("Failed to download labels metadata")?
+            .error_for_status()?;
         let body = response
             .json::<serde_json::Value>()
             .context("Failed to parse labels metadata")?;
@@ -193,7 +194,8 @@ impl Client {
             .query(&[("ids", release_ids.join(","))])
             .headers(self.default_headers.clone())
             .send()
-            .context("Failed to download releases metadata")?;
+            .context("Failed to download releases metadata")?
+            .error_for_status()?;
 
         let body = response
             .json::<serde_json::Value>()
@@ -349,7 +351,8 @@ impl Client {
             .query(&[("ids", track_ids.join(","))])
             .headers(self.default_headers.clone())
             .send()
-            .context("Failed to donwload tracks metadata")?;
+            .context("Failed to donwload tracks metadata")?
+            .error_for_status()?;
 
         let body = response
             .json::<serde_json::Value>()
@@ -475,7 +478,8 @@ impl Client {
             .send()
             .with_context(|| {
                 format!("Failed to download track link for id={track_id}")
-            })?;
+            })?
+            .error_for_status()?;
 
         let body =
             response.json::<serde_json::Value>().with_context(|| {
@@ -536,7 +540,8 @@ impl Client {
             .query(&[("track_id", track_id)])
             .headers(self.default_headers.clone())
             .send()
-            .context("Failed to download lyrics")?;
+            .context("Failed to download lyrics")?
+            .error_for_status()?;
         let body = response
             .json::<serde_json::Value>()
             .context("Failed to parse lyrics")?;
@@ -571,7 +576,12 @@ impl Client {
     fn download_cover(&self, url: &str, path: &Path) -> anyhow::Result<()> {
         if !path.try_exists()? {
             tracing::info!("Downloading cover {}", path.display());
-            let response = self.http.get(url).send()?;
+            let response = self
+                .http
+                .get(url)
+                .send()
+                .context("Failed to download cover")?
+                .error_for_status()?;
             std::fs::write(path, response.bytes()?)?;
         }
 
@@ -651,7 +661,8 @@ impl Client {
             .http
             .get(url)
             .send()
-            .context("Failed to download track")?;
+            .context("Failed to download track")?
+            .error_for_status()?;
         std::fs::write(
             &filepath,
             response.bytes().context("Failed to read track data")?,
