@@ -1,6 +1,8 @@
+mod entities;
+mod models;
+
 use std::{
     collections::{HashMap, HashSet},
-    fmt::Display,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -10,22 +12,23 @@ use audiotags::{
     traits::AudioTagWrite, AudioTag, FlacTag, Id3v2Tag, MimeType, Picture,
 };
 use chrono::{Datelike, NaiveDate};
-use clap::ValueEnum;
 use id3::{frame, TagLike};
 use reqwest::{
     cookie::Jar,
     header::{HeaderMap, USER_AGENT},
     Url,
 };
-use serde::Serialize;
+use serde::Deserialize;
 
 use crate::config::Config;
+
+pub use entities::Quality;
+use entities::{Lyrics, LyricsKind, ReleaseInfo, TrackInfo};
 
 const ZVUK_HOST: &str = "https://zvuk.com";
 const ZVUK_RELEASE_PREFIX: &str = "https://zvuk.com/release/";
 const ZVUK_TRACKS_PREFIX: &str = "https://zvuk.com/track/";
 const ZVUK_RELEASES_URL: &str = "https://zvuk.com/api/tiny/releases";
-const ZVUK_LABELS_URL: &str = "https://zvuk.com/api/tiny/labels";
 const ZVUK_TRACKS_URL: &str = "https://zvuk.com/api/tiny/tracks";
 const ZVUK_DOWNLOAD_URL: &str = "https://zvuk.com/api/tiny/track/stream";
 const ZVUK_LYRICS_URL: &str = "https://zvuk.com/api/tiny/lyrics";
@@ -34,71 +37,6 @@ pub const ZVUK_DEFAULT_COVER_RESIZE_COMMAND: &str =
     "magick {source} -define jpeg:extent=1MB {target}";
 
 pub const ZVUK_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-
-#[derive(Debug)]
-struct ReleaseInfo {
-    track_ids: Vec<String>,
-    track_count: u32,
-    label: String,
-    date: String,
-    album: String,
-    author: String,
-}
-
-#[expect(unused)]
-#[derive(Debug)]
-struct TrackInfo {
-    author: String,
-    name: String,
-    album: String,
-    release_id: String,
-    track_id: String,
-    genre: String,
-    number: u32,
-    image: String,
-    lyrics: bool,
-    has_flac: bool,
-}
-
-#[derive(ValueEnum, Debug, Clone, Serialize, PartialEq, Eq, Copy)]
-pub enum Quality {
-    Flac,
-    // 320 kbps
-    MP3High,
-    // 128 kbps
-    MP3Mid,
-}
-
-impl Quality {
-    fn extension(self) -> String {
-        let string = match self {
-            Self::Flac => "flac",
-            Self::MP3High | Self::MP3Mid => "mp3",
-        };
-        String::from(string)
-    }
-}
-
-impl Display for Quality {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Flac => write!(f, "flac"),
-            Self::MP3High => write!(f, "high"),
-            Self::MP3Mid => write!(f, "mid"),
-        }
-    }
-}
-
-enum LyricsKind {
-    Subtitle,
-    Lyrics,
-}
-
-#[expect(unused)]
-struct Lyrics {
-    kind: LyricsKind,
-    text: String,
-}
 
 struct Client {
     embed_cover: bool,
@@ -143,46 +81,6 @@ impl Client {
         }
     }
 
-    fn get_labels_info(
-        &self,
-        label_ids: &[String],
-    ) -> anyhow::Result<HashMap<String, String>> {
-        tracing::info!("Getting labels metadata");
-        let response = self
-            .http
-            .get(ZVUK_LABELS_URL)
-            .query(&[("ids", label_ids.join(","))])
-            .headers(self.default_headers.clone())
-            .send()
-            .context("Failed to download labels metadata")?
-            .error_for_status()?;
-        let body = response
-            .json::<serde_json::Value>()
-            .context("Failed to parse labels metadata")?;
-
-        tracing::trace!("{ZVUK_LABELS_URL} response: {body:#?}");
-
-        let mut labels = HashMap::new();
-
-        for (label_id, label_info) in body
-            .get("result")
-            .and_then(|x| x.get("labels"))
-            .and_then(|x| x.as_object())
-            .context("No labels in labels metadata")?
-        {
-            labels.insert(
-                label_id.clone(),
-                label_info
-                    .get("title")
-                    .and_then(|x| x.as_str())
-                    .context("Label title is not a string")?
-                    .to_string(),
-            );
-        }
-
-        Ok(labels)
-    }
-
     fn get_releases_info(
         &self,
         release_ids: &[String],
@@ -200,76 +98,13 @@ impl Client {
         let body = response
             .json::<serde_json::Value>()
             .context("Failed to parse releses metadata")?;
-
         tracing::trace!("{ZVUK_RELEASES_URL} response: {body:#?}");
 
-        let mut label_ids = Vec::new();
-        for (_release_id, release_info) in body
-            .get("result")
-            .and_then(|x| x.get("releases"))
-            .and_then(|x| x.as_object())
-            .context("No releases in releases metadata")?
-        {
-            label_ids.push(
-                release_info
-                    .get("label_id")
-                    .and_then(|x| x.as_number())
-                    .context("Label id is not a number")?
-                    .to_string(),
-            );
-        }
+        let result = models::ZvukResponse::deserialize(body)?.result;
+        let mut releases = HashMap::with_capacity(result.releases.len());
 
-        let labels = self.get_labels_info(&label_ids)?;
-
-        let mut releases = HashMap::new();
-
-        for (release_id, release_info) in body
-            .get("result")
-            .and_then(|x| x.get("releases"))
-            .and_then(|x| x.as_object())
-            .context("No releases in releases metadata")?
-        {
-            let track_ids: Vec<_> = release_info
-                .get("track_ids")
-                .and_then(|x| x.as_array())
-                .context("track_ids is not an array")?
-                .iter()
-                .filter_map(|x| Some(x.as_number()?.to_string()))
-                .collect();
-            let track_count: u32 = track_ids.len().try_into()?;
-
-            releases.insert(
-                release_id.clone(),
-                ReleaseInfo {
-                    track_ids,
-                    track_count,
-                    label: labels
-                        .get(
-                            &release_info
-                                .get("label_id")
-                                .and_then(|x| x.as_number())
-                                .context("label_id is not a number")?
-                                .to_string(),
-                        )
-                        .context("no label info")?
-                        .as_str()
-                        .to_string(),
-                    date: release_info
-                        .get("date")
-                        .context("no date")?
-                        .to_string(),
-                    album: release_info
-                        .get("title")
-                        .and_then(|x| x.as_str())
-                        .context("no title")?
-                        .to_string(),
-                    author: release_info
-                        .get("credits")
-                        .and_then(|x| x.as_str())
-                        .context("credits is not a string")?
-                        .to_string(),
-                },
-            );
+        for (release_id, release_info) in result.releases {
+            releases.insert(release_id.clone(), release_info.try_into()?);
         }
 
         Ok(releases)
@@ -359,72 +194,11 @@ impl Client {
             .context("Failed to parse tracks metadata")?;
         tracing::trace!("{ZVUK_TRACKS_URL} response: {body:#?}");
 
-        let mut tracks = HashMap::new();
+        let result = models::ZvukResponse::deserialize(body)?.result;
+        let mut tracks = HashMap::with_capacity(result.tracks.len());
 
-        for (track_id, track_info) in body
-            .get("result")
-            .and_then(|x| x.get("tracks"))
-            .and_then(|x| x.as_object())
-            .context("tracks is not an object")?
-        {
-            let has_flac = track_info
-                .get("has_flac")
-                .and_then(serde_json::Value::as_bool)
-                .context("has_flac is not bool")?;
-
-            tracks.insert(
-                track_id.clone(),
-                TrackInfo {
-                    author: track_info
-                        .get("credits")
-                        .and_then(|x| x.as_str())
-                        .context("credits is not a string")?
-                        .to_string(),
-                    name: track_info
-                        .get("title")
-                        .and_then(|x| x.as_str())
-                        .context("title is not a string")?
-                        .to_string(),
-                    album: track_info
-                        .get("release_title")
-                        .and_then(|x| x.as_str())
-                        .context("release_title is not a string")?
-                        .to_string(),
-                    release_id: track_info
-                        .get("release_id")
-                        .and_then(|x| x.as_number())
-                        .context("release_id is not a number")?
-                        .to_string(),
-                    track_id: track_info
-                        .get("id")
-                        .context("no id")?
-                        .to_string(),
-                    genre: track_info
-                        .get("genres")
-                        .and_then(|x| x.as_array())
-                        .context("genre is not an array")?
-                        .iter()
-                        .filter_map(|x| x.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                    number: track_info
-                        .get("position")
-                        .and_then(serde_json::Value::as_u64)
-                        .context("position is not a number")?
-                        .try_into()?,
-                    image: track_info
-                        .get("image")
-                        .and_then(|x| x.get("src"))
-                        .and_then(|x| x.as_str())
-                        .context("image src is not a string")?
-                        .replace("&size={size}&ext=jpg", ""),
-                    lyrics: track_info
-                        .get("lyrics")
-                        .and_then(serde_json::Value::as_bool)
-                        .unwrap_or(false),
-                    has_flac,
-                },
-            );
+        for (track_id, track_info) in result.tracks {
+            tracks.insert(track_id.clone(), track_info.try_into()?);
         }
 
         Ok(tracks)
@@ -489,15 +263,8 @@ impl Client {
             "{ZVUK_DOWNLOAD_URL} response for id={track_id}: {body:#?}"
         );
 
-        let link = body
-            .get("result")
-            .and_then(|x| x.get("stream"))
-            .and_then(|x| x.as_str())
-            .with_context(|| {
-                format!("stream is not a string for id={track_id}")
-            })?;
-
-        Ok(link.to_string())
+        let result = models::ZvukDownloadResponse::deserialize(body)?.result;
+        Ok(result.stream)
     }
 
     fn get_tracks_links(
@@ -546,22 +313,9 @@ impl Client {
             .json::<serde_json::Value>()
             .context("Failed to parse lyrics")?;
         tracing::trace!("{ZVUK_LYRICS_URL} response: {body:#?}");
+        let result = models::ZvukLyricsResponse::deserialize(body)?.result;
 
-        let lyrics = body
-            .get("result")
-            .and_then(|x| x.get("lyrics"))
-            .and_then(|x| x.as_str())
-            .context("lyrics is not a string")?
-            .to_string();
-
-        let type_ = body
-            .get("result")
-            .and_then(|x| x.get("type"))
-            .and_then(|x| x.as_str())
-            .unwrap_or("lyrics")
-            .to_string();
-
-        let lyrics_type = if type_ == "subtitle" {
+        let lyrics_type = if result.type_ == "subtitle" {
             LyricsKind::Subtitle
         } else {
             LyricsKind::Lyrics
@@ -569,7 +323,7 @@ impl Client {
 
         Ok(Lyrics {
             kind: lyrics_type,
-            text: lyrics,
+            text: result.lyrics,
         })
     }
 
