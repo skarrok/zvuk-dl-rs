@@ -44,7 +44,6 @@ pub(super) struct Client {
     output_dir: PathBuf,
 
     pause_between_getting_track_links: Duration,
-    default_headers: HeaderMap,
     http: reqwest::blocking::Client,
 }
 
@@ -69,9 +68,9 @@ impl Client {
             quality: config.quality,
             output_dir: PathBuf::from(&config.output_dir),
 
-            default_headers,
             http: reqwest::blocking::Client::builder()
                 .cookie_provider(jar.into())
+                .default_headers(default_headers)
                 .timeout(config.request_timeout)
                 .build()
                 .unwrap(),
@@ -87,7 +86,6 @@ impl Client {
             .http
             .get(ZVUK_RELEASES_URL)
             .query(&[("ids", release_ids.join(","))])
-            .headers(self.default_headers.clone())
             .send()
             .context("Failed to download releases metadata")?
             .error_for_status()?;
@@ -184,7 +182,6 @@ impl Client {
             .http
             .get(ZVUK_TRACKS_URL)
             .query(&[("ids", track_ids.join(","))])
-            .headers(self.default_headers.clone())
             .send()
             .context("Failed to donwload tracks metadata")?
             .error_for_status()?;
@@ -248,7 +245,6 @@ impl Client {
                 ("quality", effective_quality.to_string().as_str()),
                 ("id", track_id),
             ])
-            .headers(self.default_headers.clone())
             .send()
             .with_context(|| {
                 format!("Failed to download track link for id={track_id}")
@@ -306,7 +302,6 @@ impl Client {
             .http
             .get(ZVUK_LYRICS_URL)
             .query(&[("track_id", track_id)])
-            .headers(self.default_headers.clone())
             .send()
             .context("Failed to download lyrics")?
             .error_for_status()?;
