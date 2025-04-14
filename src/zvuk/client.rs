@@ -72,6 +72,7 @@ impl Client {
             default_headers,
             http: reqwest::blocking::Client::builder()
                 .cookie_provider(jar.into())
+                .timeout(config.request_timeout)
                 .build()
                 .unwrap(),
         }

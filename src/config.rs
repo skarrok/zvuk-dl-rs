@@ -97,6 +97,16 @@ pub struct Config {
     )]
     pub user_agent: String,
 
+    /// Timeout for network requests
+    #[arg(
+        long,
+        env,
+        short = 't',
+        default_value = "60s",
+        value_parser = humantime::parse_duration,
+    )]
+    pub request_timeout: Duration,
+
     /// How long to wait between getting track links
     #[arg(
         long,

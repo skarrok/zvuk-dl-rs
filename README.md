@@ -77,7 +77,7 @@ Options:
           Output directory
 
           [env: OUTPUT_DIR=]
-          [default: "."]
+          [default: .]
 
   -q, --quality <QUALITY>
           Quality of tracks to grab
@@ -126,6 +126,12 @@ Options:
 
           [env: USER_AGENT=]
           [default: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"]
+
+  -t, --request-timeout <REQUEST_TIMEOUT>
+          Timeout for network requests
+
+          [env: REQUEST_TIMEOUT=]
+          [default: 60s]
 
       --log-level <LOG_LEVEL>
           Verbosity of logging

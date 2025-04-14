@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+- feat: ✨ add timeout option for network requests
+
+  Add `--request-timeout` or `-t` option to configure network timeouts
+
 ## v0.3.0
 
 ### Added
