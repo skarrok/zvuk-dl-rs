@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+- feat: ✨ add ability to download audio books ([#5](https://github.com/skarrok/zvuk-dl-rs/issues/5))
+
+  URLs like https://zvuk.com/abook/32124448 now work!
+
 - feat: ✨ add timeout option for network requests
 
   Add `--request-timeout` or `-t` option to configure network timeouts

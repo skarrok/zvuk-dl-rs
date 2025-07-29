@@ -128,3 +128,33 @@ impl TryFrom<super::models::ZvukLyrics> for Lyrics {
         })
     }
 }
+
+#[derive(Debug)]
+pub(super) struct BookChapter {
+    pub(super) author: String,
+    pub(super) book_title: String,
+    pub(super) title: String,
+    pub(super) image: String,
+    pub(super) number: u32,
+}
+
+impl TryFrom<super::models::ZvukGQLChapter> for BookChapter {
+    type Error = anyhow::Error;
+
+    fn try_from(
+        value: super::models::ZvukGQLChapter,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self {
+            author: value
+                .book_authors
+                .iter()
+                .map(|x| x.rname.clone())
+                .collect::<Vec<_>>()
+                .join(", "),
+            book_title: value.book.title,
+            title: value.title,
+            image: value.image.src,
+            number: value.position.try_into()?,
+        })
+    }
+}

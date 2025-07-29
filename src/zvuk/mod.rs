@@ -1,5 +1,6 @@
 mod client;
 mod entities;
+mod gql;
 mod models;
 
 use std::collections::HashMap;
@@ -13,16 +14,19 @@ pub use entities::Quality;
 pub fn download(config: &Config) -> anyhow::Result<()> {
     let mut release_ids = Vec::new();
     let mut track_ids = Vec::new();
+    let mut book_ids = Vec::new();
 
     for url in &config.urls {
         if let Some(url) = url.strip_prefix(client::ZVUK_RELEASE_PREFIX) {
             release_ids.push(url.to_owned());
+        } else if let Some(url) = url.strip_prefix(client::ZVUK_ABOOK_PREFIX) {
+            book_ids.push(url.to_owned());
         } else if let Some(url) = url.strip_prefix(client::ZVUK_TRACKS_PREFIX)
         {
             track_ids.push(url.to_owned());
         } else {
             tracing::warn!(
-                "This doens't look like zvuk.com URL, skipping: {}",
+                "This doesn't look like zvuk.com URL, skipping: {}",
                 url
             );
         }
@@ -35,6 +39,9 @@ pub fn download(config: &Config) -> anyhow::Result<()> {
     }
     if !track_ids.is_empty() {
         client.download_tracks(&track_ids, &HashMap::new())?;
+    }
+    if !book_ids.is_empty() {
+        client.download_abooks(&book_ids)?;
     }
 
     Ok(())

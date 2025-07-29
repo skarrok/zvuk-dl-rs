@@ -17,17 +17,20 @@ use reqwest::{
 };
 use serde::Deserialize;
 
-use super::entities::{Lyrics, ReleaseInfo, TrackInfo};
+use super::entities::{BookChapter, Lyrics, ReleaseInfo, TrackInfo};
+use super::gql;
 use super::Quality;
 use crate::config::Config;
 
 const ZVUK_HOST: &str = "https://zvuk.com";
 pub(super) const ZVUK_RELEASE_PREFIX: &str = "https://zvuk.com/release/";
 pub(super) const ZVUK_TRACKS_PREFIX: &str = "https://zvuk.com/track/";
+pub(super) const ZVUK_ABOOK_PREFIX: &str = "https://zvuk.com/abook/";
 const ZVUK_RELEASES_URL: &str = "https://zvuk.com/api/tiny/releases";
 const ZVUK_TRACKS_URL: &str = "https://zvuk.com/api/tiny/tracks";
 const ZVUK_DOWNLOAD_URL: &str = "https://zvuk.com/api/tiny/track/stream";
 const ZVUK_LYRICS_URL: &str = "https://zvuk.com/api/tiny/lyrics";
+const ZVUK_GRAPHQL_URL: &str = "https://zvuk.com/api/v1/graphql";
 
 pub const ZVUK_DEFAULT_COVER_RESIZE_COMMAND: &str =
     "magick {source} -define jpeg:extent=1MB {target}";
@@ -92,7 +95,7 @@ impl Client {
 
         let body = response
             .json::<serde_json::Value>()
-            .context("Failed to parse releses metadata")?;
+            .context("Failed to parse releases metadata")?;
         tracing::trace!("{ZVUK_RELEASES_URL} response: {body:#?}");
 
         let result = super::models::ZvukResponse::deserialize(body)?.result;
@@ -183,7 +186,7 @@ impl Client {
             .get(ZVUK_TRACKS_URL)
             .query(&[("ids", track_ids.join(","))])
             .send()
-            .context("Failed to donwload tracks metadata")?
+            .context("Failed to download tracks metadata")?
             .error_for_status()?;
 
         let body = response
@@ -569,6 +572,194 @@ impl Client {
         )
         .context("Failed to write tags to file")?;
         Ok(())
+    }
+
+    pub fn download_abooks(&self, book_ids: &[String]) -> anyhow::Result<()> {
+        let metadata = self
+            .get_books_metadata(book_ids)
+            .context("Failed to get books metadata")?;
+
+        let links = self
+            .get_chapter_links(&metadata)
+            .context("Failed to get audiobooks download links")?;
+
+        if metadata.len() != links.len() {
+            return Err(anyhow::anyhow!(
+                "metadata and links have different length"
+            ));
+        }
+
+        for ((chapter_id, chapter_info), chapter_link) in
+            metadata.into_iter().zip(links)
+        {
+            let result = self
+                .get_and_save_chapter(chapter_link.as_str(), &chapter_info);
+            if let Err(e) = result {
+                tracing::warn!("Failed to download and process chapter id={chapter_id}: {e:#}");
+            }
+        }
+
+        Ok(())
+    }
+
+    fn get_and_save_chapter(
+        &self,
+        url: &str,
+        chapter_info: &BookChapter,
+    ) -> anyhow::Result<()> {
+        let directory_name = sanitize_path(&format!(
+            "{} - {}",
+            chapter_info.author, chapter_info.book_title,
+        ));
+        let directory_path = self.output_dir.join(directory_name);
+
+        std::fs::create_dir_all(&directory_path).with_context(|| {
+            format!("Failed to create directory {}", directory_path.display())
+        })?;
+
+        let cover_path = directory_path.join("cover.jpg");
+        self.download_cover(&chapter_info.image, &cover_path)
+            .context("Failed to download and process album cover")?;
+
+        let filename = sanitize_path(&format!(
+            "{:02} - {}.{}",
+            chapter_info.number,
+            chapter_info.title,
+            Quality::MP3Mid.extension(),
+        ));
+        let filename = PathBuf::from(filename);
+        let filepath = directory_path.join(filename);
+
+        if filepath.exists() {
+            tracing::info!(
+                "File already exists, skipping: {}",
+                filepath.display()
+            );
+            return Ok(());
+        }
+
+        tracing::info!("Downloading {}", filepath.display());
+
+        let response = self
+            .http
+            .get(url)
+            .send()
+            .context("Failed to download track")?
+            .error_for_status()?;
+        std::fs::write(
+            &filepath,
+            response.bytes().context("Failed to read track data")?,
+        )
+        .context("Failed to save track on disk")?;
+
+        let mut tags: Box<dyn AudioTag> = Id3v2Tag::read_from_path(&filepath)
+            .map_or_else(
+                |_| {
+                    tracing::trace!("Failed to read ID3v2 tag from file");
+                    Box::new(Id3v2Tag::new())
+                },
+                Box::new,
+            );
+
+        tags.set_artist(&chapter_info.author);
+        tags.set_title(&chapter_info.title);
+        tags.set_album_title(&chapter_info.book_title);
+        tags.set_track_number(chapter_info.number.try_into()?);
+
+        if self.embed_cover {
+            let cover = Picture {
+                mime_type: MimeType::Jpeg,
+                data: &std::fs::read(cover_path)
+                    .context("Failed to read cover file for embedding")?,
+            };
+            tags.set_album_cover(cover);
+        }
+
+        tags.write_to_path(
+            filepath.to_str().context("filepath is not valid string")?,
+        )
+        .context("Failed to write tags to file")?;
+
+        Ok(())
+    }
+
+    fn get_books_metadata(
+        &self,
+        book_ids: &[String],
+    ) -> anyhow::Result<HashMap<String, BookChapter>> {
+        tracing::info!("Getting books metadata");
+        let request = serde_json::json!({
+            "query": gql::ZVUK_GQL_GET_BOOK_CHAPTERS_QUERY,
+            "variables": {
+                "ids": book_ids
+            },
+            "operationName": "getBookChapters"
+        });
+        let response = self
+            .http
+            .post(ZVUK_GRAPHQL_URL)
+            .json(&request)
+            .send()
+            .context("Failed to get books metadata")?
+            .error_for_status()?;
+        let body = response
+            .json::<serde_json::Value>()
+            .context("Failed to parse books metadata")?;
+        tracing::trace!("{ZVUK_GRAPHQL_URL} response: {body:#?}");
+
+        let result = super::models::ZvukGQLResponse::deserialize(body)?.data;
+        let Some(result) = result.get_books else {
+            return Err(anyhow::anyhow!("No book info in response"));
+        };
+        let mut chapters = HashMap::with_capacity(result.len());
+
+        for book in result {
+            for chapter in book.chapters {
+                chapters.insert(chapter.id.clone(), chapter.try_into()?);
+            }
+        }
+
+        Ok(chapters)
+    }
+
+    fn get_chapter_links(
+        &self,
+        metadata: &HashMap<String, BookChapter>,
+    ) -> anyhow::Result<Vec<String>> {
+        tracing::info!("Getting download urls");
+        let mut links = Vec::with_capacity(metadata.len());
+
+        let chapter_ids: Vec<_> = metadata.keys().collect();
+        let request = serde_json::json!({
+            "query": gql::ZVUK_GQL_GET_STREAM,
+            "variables": {
+                "includeFlacDrm": false,
+                "ids": chapter_ids
+            },
+            "operationName": "getStream"
+        });
+        let response = self
+            .http
+            .post(ZVUK_GRAPHQL_URL)
+            .json(&request)
+            .send()
+            .context("Failed to get audiobook urls")?
+            .error_for_status()?;
+        let body = response
+            .json::<serde_json::Value>()
+            .context("Failed to parse urls")?;
+        tracing::trace!("{ZVUK_GRAPHQL_URL} response: {body:#?}");
+
+        let result = super::models::ZvukGQLResponse::deserialize(body)?.data;
+        let Some(result) = result.media_contents else {
+            return Err(anyhow::anyhow!("No media contents in response"));
+        };
+
+        for content in result {
+            links.push(content.stream.mid);
+        }
+
+        Ok(links)
     }
 }
 

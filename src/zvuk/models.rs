@@ -94,3 +94,73 @@ pub(super) struct ZvukResult {
     pub(super) releases: HashMap<String, ZvukRelease>,
     pub(super) tracks: HashMap<String, ZvukTrack>,
 }
+
+#[derive(Deserialize)]
+pub(super) struct ZvukGQLResponse {
+    pub(super) data: ZvukGQLData,
+}
+
+#[derive(Deserialize)]
+pub(super) struct ZvukGQLData {
+    #[serde(alias = "getBooks")]
+    pub(super) get_books: Option<Vec<ZvukGQLBook>>,
+    #[serde(alias = "mediaContents")]
+    pub(super) media_contents: Option<Vec<ZvukGQLMediaContent>>,
+}
+
+#[expect(unused)]
+#[derive(Deserialize)]
+pub(super) struct ZvukGQLBook {
+    pub(super) title: String,
+    explicit: bool,
+    pub(super) chapters: Vec<ZvukGQLChapter>,
+}
+
+#[expect(unused)]
+#[derive(Deserialize)]
+pub(super) struct ZvukGQLChapter {
+    pub(super) id: String,
+    pub(super) title: String,
+    availability: i64,
+    duration: i64,
+    pub(super) image: ZvukGQLImage,
+    pub(super) book: ZvukBook,
+    #[serde(alias = "bookAuthors")]
+    pub(super) book_authors: Vec<ZvukBookAuthor>,
+    pub(super) position: i64,
+    __typename: String,
+}
+
+#[derive(Deserialize)]
+pub(super) struct ZvukGQLImage {
+    pub(super) src: String,
+}
+
+#[expect(unused)]
+#[derive(Deserialize)]
+pub(super) struct ZvukBook {
+    id: String,
+    pub(super) title: String,
+    explicit: bool,
+}
+
+#[expect(unused)]
+#[derive(Deserialize)]
+pub(super) struct ZvukBookAuthor {
+    id: String,
+    pub(super) rname: String,
+    image: ZvukGQLImage,
+}
+
+#[derive(Deserialize)]
+pub(super) struct ZvukGQLMediaContent {
+    __typename: String,
+    pub(super) stream: ZvukGQLStream,
+}
+
+#[expect(unused)]
+#[derive(Deserialize)]
+pub(super) struct ZvukGQLStream {
+    expire: String,
+    pub(super) mid: String,
+}
