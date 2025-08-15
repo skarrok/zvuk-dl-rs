@@ -231,8 +231,11 @@ fn resize_command_validator(value: &str) -> anyhow::Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use clap::Parser;
+
     use super::resize_command_validator;
     use super::Config;
+    use super::LogStruct;
 
     #[test]
     fn validate_resize_command() {
@@ -252,5 +255,16 @@ mod tests {
     fn verify_cli() {
         use clap::CommandFactory;
         Config::command().debug_assert();
+    }
+
+    #[test]
+    fn log_struct() {
+        let config = Config::try_parse_from(vec![
+            "zvuk-dl",
+            "--token=1",
+            "https://zvuk.com/track/1",
+        ])
+        .expect("correct args");
+        config.log();
     }
 }
