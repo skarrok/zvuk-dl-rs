@@ -36,8 +36,25 @@ pub fn setup(
         .with_writer(std::io::stderr)
         .with_ansi(with_color);
 
-    match log_format {
-        LogFormat::Console => builder.init(),
-        LogFormat::Json => builder.json().flatten_event(true).init(),
+    let _ = match log_format {
+        LogFormat::Console => builder.try_init(),
+        LogFormat::Json => builder.json().flatten_event(true).try_init(),
+    };
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::config::{LogFormat, LogLevel};
+
+    use super::setup;
+
+    #[test]
+    fn setup_console_logger() {
+        setup(LogLevel::Info, LogFormat::Console, Some("zvuk-dl"));
+    }
+
+    #[test]
+    fn setup_json_logger() {
+        setup(LogLevel::Info, LogFormat::Json, None);
     }
 }
