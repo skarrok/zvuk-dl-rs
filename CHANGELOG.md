@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+## v0.4.0
+
 - feat: ✨ add ability to download audio books ([#5](https://github.com/skarrok/zvuk-dl-rs/issues/5))
 
   URLs like https://zvuk.com/abook/32124448 now work!
