@@ -37,6 +37,7 @@ fragment PlayerChapterData on Chapter {
 }
 ";
 
+// quality is auto, hq, hifi, sq
 pub const ZVUK_GQL_GET_STREAM: &str = "
 query getStream($ids: [ID!]!, $quality: String, $encodeType: String, $includeFlacDrm: Boolean!) {
   mediaContents(ids: $ids, quality: $quality, encodeType: $encodeType) {
