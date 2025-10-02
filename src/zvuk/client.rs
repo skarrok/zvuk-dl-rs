@@ -22,15 +22,16 @@ use super::gql;
 use super::Quality;
 use crate::config::Config;
 
-const ZVUK_HOST: &str = "https://zvuk.com";
+pub const ZVUK_HOST: &str = "https://zvuk.com";
+pub const ZVUK_RELEASES_ENDPOINT: &str = "/api/tiny/releases";
+pub const ZVUK_TRACKS_ENDPOINT: &str = "/api/tiny/tracks";
+pub const ZVUK_DOWNLOAD_ENDPOINT: &str = "/api/tiny/track/stream";
+pub const ZVUK_LYRICS_ENDPOINT: &str = "/api/tiny/lyrics";
+pub const ZVUK_GRAPHQL_ENDPOINT: &str = "/api/v1/graphql";
+
 pub(super) const ZVUK_RELEASE_PREFIX: &str = "https://zvuk.com/release/";
 pub(super) const ZVUK_TRACKS_PREFIX: &str = "https://zvuk.com/track/";
 pub(super) const ZVUK_ABOOK_PREFIX: &str = "https://zvuk.com/abook/";
-const ZVUK_RELEASES_URL: &str = "https://zvuk.com/api/tiny/releases";
-const ZVUK_TRACKS_URL: &str = "https://zvuk.com/api/tiny/tracks";
-const ZVUK_DOWNLOAD_URL: &str = "https://zvuk.com/api/tiny/track/stream";
-const ZVUK_LYRICS_URL: &str = "https://zvuk.com/api/tiny/lyrics";
-const ZVUK_GRAPHQL_URL: &str = "https://zvuk.com/api/v1/graphql";
 
 pub const ZVUK_DEFAULT_COVER_RESIZE_COMMAND: &str =
     "magick {source} -define jpeg:extent=1MB {target}";
@@ -47,20 +48,43 @@ pub(super) struct Client {
     output_dir: PathBuf,
 
     pause_between_getting_track_links: Duration,
+    zvuk_releases_url: Url,
+    zvuk_tracks_url: Url,
+    zvuk_download_url: Url,
+    zvuk_lyrics_url: Url,
+    zvuk_graphql_url: Url,
     http: reqwest::blocking::Client,
 }
 
 impl Client {
-    pub fn new(config: &Config) -> Self {
+    pub fn build(config: &Config) -> anyhow::Result<Self> {
+        fn join(host: &Url, path: &str) -> anyhow::Result<Url> {
+            host.join(path)
+                .with_context(|| format!("Incorrect endpoint: {path}"))
+        }
+
+        let zvuk_host =
+            config.zvuk_host.parse::<Url>().with_context(|| {
+                format!("Incorrect host: {}", config.zvuk_host)
+            })?;
+        let zvuk_releases_url =
+            join(&zvuk_host, &config.zvuk_releases_endpoint)?;
+        let zvuk_tracks_url = join(&zvuk_host, &config.zvuk_tracks_endpoint)?;
+        let zvuk_download_url =
+            join(&zvuk_host, &config.zvuk_download_endpoint)?;
+        let zvuk_lyrics_url = join(&zvuk_host, &config.zvuk_lyrics_endpoint)?;
+        let zvuk_graphql_url =
+            join(&zvuk_host, &config.zvuk_graphql_endpoint)?;
+
         let jar = Jar::default();
         jar.add_cookie_str(
             format!("auth={}", config.token).as_str(),
-            &ZVUK_HOST.parse::<Url>().unwrap(),
+            &zvuk_host,
         );
         let mut default_headers = HeaderMap::new();
-        default_headers.append(USER_AGENT, config.user_agent.parse().unwrap());
+        default_headers.append(USER_AGENT, config.user_agent.parse()?);
 
-        Self {
+        Ok(Self {
             embed_cover: config.embed_cover,
             resize_cover: config.resize_cover,
             resize_cover_limit: config.resize_cover_limit,
@@ -71,13 +95,18 @@ impl Client {
             quality: config.quality,
             output_dir: PathBuf::from(&config.output_dir),
 
+            zvuk_releases_url,
+            zvuk_tracks_url,
+            zvuk_download_url,
+            zvuk_lyrics_url,
+            zvuk_graphql_url,
+
             http: reqwest::blocking::Client::builder()
                 .cookie_provider(jar.into())
                 .default_headers(default_headers)
                 .timeout(config.request_timeout)
-                .build()
-                .unwrap(),
-        }
+                .build()?,
+        })
     }
 
     fn get_releases_info(
@@ -87,7 +116,7 @@ impl Client {
         tracing::info!("Getting releases metadata");
         let response = self
             .http
-            .get(ZVUK_RELEASES_URL)
+            .get(self.zvuk_releases_url.clone())
             .query(&[("ids", release_ids.join(","))])
             .send()
             .context("Failed to download releases metadata")?
@@ -96,7 +125,7 @@ impl Client {
         let body = response
             .json::<serde_json::Value>()
             .context("Failed to parse releases metadata")?;
-        tracing::trace!("{ZVUK_RELEASES_URL} response: {body:#?}");
+        tracing::trace!("{0} response: {body:#?}", self.zvuk_releases_url);
 
         let result = super::models::ZvukResponse::deserialize(body)?.result;
         let mut releases = HashMap::with_capacity(result.releases.len());
@@ -183,7 +212,7 @@ impl Client {
         tracing::info!("Getting tracks metadata");
         let response = self
             .http
-            .get(ZVUK_TRACKS_URL)
+            .get(self.zvuk_tracks_url.clone())
             .query(&[("ids", track_ids.join(","))])
             .send()
             .context("Failed to download tracks metadata")?
@@ -192,7 +221,7 @@ impl Client {
         let body = response
             .json::<serde_json::Value>()
             .context("Failed to parse tracks metadata")?;
-        tracing::trace!("{ZVUK_TRACKS_URL} response: {body:#?}");
+        tracing::trace!("{0} response: {body:#?}", self.zvuk_tracks_url);
 
         let result = super::models::ZvukResponse::deserialize(body)?.result;
         let mut tracks = HashMap::with_capacity(result.tracks.len());
@@ -243,7 +272,7 @@ impl Client {
     ) -> anyhow::Result<String> {
         let response = self
             .http
-            .get(ZVUK_DOWNLOAD_URL)
+            .get(self.zvuk_download_url.clone())
             .query(&[
                 ("quality", effective_quality.to_string().as_str()),
                 ("id", track_id),
@@ -259,7 +288,8 @@ impl Client {
                 format!("Failed to parse track link for id={track_id}")
             })?;
         tracing::trace!(
-            "{ZVUK_DOWNLOAD_URL} response for id={track_id}: {body:#?}"
+            "{0} response for id={track_id}: {body:#?}",
+            self.zvuk_download_url
         );
 
         let result =
@@ -303,7 +333,7 @@ impl Client {
         tracing::info!("Getting lyrics for {}", path.display());
         let response = self
             .http
-            .get(ZVUK_LYRICS_URL)
+            .get(self.zvuk_lyrics_url.clone())
             .query(&[("track_id", track_id)])
             .send()
             .context("Failed to download lyrics")?
@@ -311,7 +341,7 @@ impl Client {
         let body = response
             .json::<serde_json::Value>()
             .context("Failed to parse lyrics")?;
-        tracing::trace!("{ZVUK_LYRICS_URL} response: {body:#?}");
+        tracing::trace!("{0} response: {body:#?}", self.zvuk_lyrics_url);
         let result =
             super::models::ZvukLyricsResponse::deserialize(body)?.result;
         result.try_into()
@@ -697,7 +727,7 @@ impl Client {
         });
         let response = self
             .http
-            .post(ZVUK_GRAPHQL_URL)
+            .post(self.zvuk_graphql_url.clone())
             .json(&request)
             .send()
             .context("Failed to get books metadata")?
@@ -705,7 +735,7 @@ impl Client {
         let body = response
             .json::<serde_json::Value>()
             .context("Failed to parse books metadata")?;
-        tracing::trace!("{ZVUK_GRAPHQL_URL} response: {body:#?}");
+        tracing::trace!("{0} response: {body:#?}", self.zvuk_graphql_url);
 
         let result = super::models::ZvukGQLResponse::deserialize(body)?.data;
         let Some(result) = result.get_books else {
@@ -740,7 +770,7 @@ impl Client {
         });
         let response = self
             .http
-            .post(ZVUK_GRAPHQL_URL)
+            .post(self.zvuk_graphql_url.clone())
             .json(&request)
             .send()
             .context("Failed to get audiobook urls")?
@@ -748,7 +778,7 @@ impl Client {
         let body = response
             .json::<serde_json::Value>()
             .context("Failed to parse urls")?;
-        tracing::trace!("{ZVUK_GRAPHQL_URL} response: {body:#?}");
+        tracing::trace!("{0} response: {body:#?}", self.zvuk_graphql_url);
 
         let result = super::models::ZvukGQLResponse::deserialize(body)?.data;
         let Some(result) = result.media_contents else {

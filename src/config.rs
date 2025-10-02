@@ -9,9 +9,11 @@ use serde::Serializer;
 use serde_json::to_value;
 use tracing::level_filters::LevelFilter;
 
-use crate::zvuk::Quality;
-use crate::zvuk::ZVUK_DEFAULT_COVER_RESIZE_COMMAND;
-use crate::zvuk::ZVUK_USER_AGENT;
+use crate::zvuk::{
+    Quality, ZVUK_DEFAULT_COVER_RESIZE_COMMAND, ZVUK_DOWNLOAD_ENDPOINT,
+    ZVUK_GRAPHQL_ENDPOINT, ZVUK_HOST, ZVUK_LYRICS_ENDPOINT,
+    ZVUK_RELEASES_ENDPOINT, ZVUK_TRACKS_ENDPOINT, ZVUK_USER_AGENT,
+};
 
 /// Download albums and tracks in high quality (FLAC) from Zvuk.com
 #[derive(Debug, Parser, Serialize)]
@@ -107,7 +109,17 @@ pub struct Config {
     )]
     pub request_timeout: Duration,
 
+    /// Verbosity of logging
+    #[arg(long, value_enum, env, default_value_t = LogLevel::Debug)]
+    pub log_level: LogLevel,
+
+    /// Format of logs
+    #[arg(long, value_enum, env, default_value_t = LogFormat::Console)]
+    pub log_format: LogFormat,
+
+    // hidden options
     /// How long to wait between getting track links
+    #[serde(skip)]
     #[arg(
         long,
         env,
@@ -117,13 +129,35 @@ pub struct Config {
     )]
     pub pause_between_getting_track_links: Duration,
 
-    /// Verbosity of logging
-    #[arg(long, value_enum, env, default_value_t = LogLevel::Debug)]
-    pub log_level: LogLevel,
+    /// Base API host for zvuk
+    #[serde(skip)]
+    #[arg(long, env, hide = true, default_value = ZVUK_HOST)]
+    pub zvuk_host: String,
 
-    /// Format of logs
-    #[arg(long, value_enum, env, default_value_t = LogFormat::Console)]
-    pub log_format: LogFormat,
+    /// API Endpoint for getting releases
+    #[serde(skip)]
+    #[arg(long, env, hide = true, default_value = ZVUK_RELEASES_ENDPOINT)]
+    pub zvuk_releases_endpoint: String,
+
+    /// API Endpoint for getting tracks metadata
+    #[serde(skip)]
+    #[arg(long, env, hide = true, default_value = ZVUK_TRACKS_ENDPOINT)]
+    pub zvuk_tracks_endpoint: String,
+
+    /// API Endpoint for getting download links
+    #[serde(skip)]
+    #[arg(long, env, hide = true, default_value = ZVUK_DOWNLOAD_ENDPOINT)]
+    pub zvuk_download_endpoint: String,
+
+    /// API Endpoint for getting lyrics
+    #[serde(skip)]
+    #[arg(long, env, hide = true, default_value = ZVUK_LYRICS_ENDPOINT)]
+    pub zvuk_lyrics_endpoint: String,
+
+    /// API Endpoint for GraphQL queries
+    #[serde(skip)]
+    #[arg(long, env, hide = true, default_value = ZVUK_GRAPHQL_ENDPOINT)]
+    pub zvuk_graphql_endpoint: String,
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy, Serialize)]

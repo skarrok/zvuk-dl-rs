@@ -5,10 +5,15 @@ mod models;
 
 use std::collections::HashMap;
 
+use anyhow::Context;
+
 use crate::config::Config;
 use client::Client;
-pub use client::ZVUK_DEFAULT_COVER_RESIZE_COMMAND;
-pub use client::ZVUK_USER_AGENT;
+pub use client::{
+    ZVUK_DEFAULT_COVER_RESIZE_COMMAND, ZVUK_DOWNLOAD_ENDPOINT,
+    ZVUK_GRAPHQL_ENDPOINT, ZVUK_HOST, ZVUK_LYRICS_ENDPOINT,
+    ZVUK_RELEASES_ENDPOINT, ZVUK_TRACKS_ENDPOINT, ZVUK_USER_AGENT,
+};
 pub use entities::Quality;
 
 pub fn download(config: &Config) -> anyhow::Result<()> {
@@ -32,7 +37,8 @@ pub fn download(config: &Config) -> anyhow::Result<()> {
         }
     }
 
-    let client = Client::new(config);
+    let client =
+        Client::build(config).context("Failed to create zvuk http client")?;
 
     if !release_ids.is_empty() {
         client.download_albums(&release_ids)?;
