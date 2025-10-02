@@ -802,3 +802,490 @@ fn sanitize_path(path: &str) -> String {
 fn sanitize_path(path: &str) -> String {
     path.replace(['/'], "_")
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::indexing_slicing)]
+    use clap::Parser;
+    use httpmock::prelude::*;
+    use serde_json::json;
+
+    use super::*;
+
+    const MOCK_TRACK_ID: &str = "1";
+    const MOCK_RELEASE_ID: &str = "99";
+    const MOCK_BOOK_ID: &str = "00";
+    const MOCK_CHAPTER_ID: &str = "88";
+    const MOCK_LYRICS: &str = "mocked lyrics";
+    const MOCK_AUDIO_URL: &str = "/file.flac";
+    const MOCK_COVER_URL: &str = "/file.jpg";
+
+    fn lyricks_mock<'s>(
+        server: &'s MockServer,
+        path: &str,
+    ) -> httpmock::Mock<'s> {
+        server.mock(|when, then| {
+            when.method(GET)
+                .path(path)
+                .query_param("track_id", MOCK_TRACK_ID);
+            then.status(200).json_body(json!({
+                "result": {
+                    "lyrics": MOCK_LYRICS,
+                    "type": "lyrics"
+                }
+            }));
+        })
+    }
+
+    fn tracks_mock<'s>(
+        server: &'s MockServer,
+        path: &str,
+    ) -> httpmock::Mock<'s> {
+        server.mock(|when, then| {
+            when.method(GET)
+                .path(path)
+                .query_param("ids", MOCK_TRACK_ID);
+            then.status(200).json_body(json!({
+                "result": {
+                    "releases": {},
+                    "tracks": {
+                        MOCK_TRACK_ID: {
+                            "artist_ids": [],
+                            "artist_names": [],
+                            "availability": 1,
+                            "condition": "",
+                            "credits": "Some artist",
+                            "duration": 30,
+                            "explicit": false,
+                            "genres": [],
+                            "has_flac": true,
+                            "highest_quality": "flac",
+                            "id": MOCK_TRACK_ID.parse::<i64>().unwrap(),
+                            "image": {
+                                "palette": "",
+                                "palette_bottom": "",
+                                "src": server.url(MOCK_COVER_URL),
+                            },
+                            "lyrics": true,
+                            "position": 1,
+                            "price": 1,
+                            "release_id": MOCK_RELEASE_ID.parse::<i64>().unwrap(),
+                            "release_title": "Some release title",
+                            "search_credits": "",
+                            "search_title": "",
+                            "template": "",
+                            "title": "Some track title"
+                        }
+                    }
+                }
+            }));
+        })
+    }
+
+    fn release_mock<'s>(
+        server: &'s MockServer,
+        path: &str,
+    ) -> httpmock::Mock<'s> {
+        server.mock(|when, then| {
+            when.method(GET)
+                .path(path)
+                .query_param("ids", MOCK_RELEASE_ID);
+            then.status(200).json_body(json!({
+                "result": {
+                    "tracks": {},
+                    "releases": {
+                        MOCK_RELEASE_ID: {
+                            "artist_ids": [],
+                            "artist_names": [],
+                            "availability": 1,
+                            "credits": "Some artist",
+                            "date": 1,
+                            "explicit": false,
+                            "genre_ids": [],
+                            "has_image": true,
+                            "id": MOCK_RELEASE_ID.parse::<i64>().unwrap(),
+                            "image": {
+                                "palette": "",
+                                "palette_bottom": "",
+                                "src": server.url(MOCK_COVER_URL),
+                            },
+                            "label_id": 1,
+                            "search_credits": "search credits",
+                            "search_title": "search title",
+                            "template": "",
+                            "title": "Some release title",
+                            "track_ids": [MOCK_TRACK_ID.parse::<i64>().unwrap()],
+                            "type": "",
+                        }
+                    }
+                }
+            }));
+        })
+    }
+
+    fn download_link_mock<'s>(
+        server: &'s MockServer,
+        path: &str,
+    ) -> httpmock::Mock<'s> {
+        server.mock(|when, then| {
+            when.method(GET)
+                .path(path)
+                .query_param("quality", "flac")
+                .query_param("id", MOCK_TRACK_ID);
+            then.status(200).json_body(json!({
+                "result": {
+                    "expire": 0,
+                    "expire_delta": 0,
+                    "stream": server.url(MOCK_AUDIO_URL)
+                }
+            }));
+        })
+    }
+
+    fn books_mock<'s>(
+        server: &'s MockServer,
+        path: &str,
+    ) -> httpmock::Mock<'s> {
+        server.mock(|when, then| {
+            when.method(POST).path(path).json_body_includes(r#"
+                {
+                    "operationName": "getBookChapters"
+                }
+            "#);
+            then.status(200).json_body(json!({"data": {
+                "getBooks": [
+                    {
+                        "title": "Some book title",
+                        "explicit": false,
+                        "chapters": [
+                            {
+                                "id": MOCK_CHAPTER_ID,
+                                "title": "Some chapter title",
+                                "availability": 1,
+                                "duration": 30,
+                                "image": {"src": server.url(MOCK_COVER_URL)},
+                                "book": {
+                                    "id": MOCK_BOOK_ID,
+                                    "title": "Some book title",
+                                    "explicit": false
+                                },
+                                "bookAuthors": [{
+                                    "id": "77",
+                                    "rname": "Rname",
+                                    "image": {"src": server.url(MOCK_COVER_URL)}
+                                }],
+                                "position": 1,
+                                "__typename": "",
+                            }
+                        ]
+                    }
+                ]
+            }}));
+        })
+    }
+
+    fn chapter_link_mock<'s>(
+        server: &'s MockServer,
+        path: &str,
+    ) -> httpmock::Mock<'s> {
+        server.mock(|when, then| {
+            when.method(POST).path(path).json_body_includes(
+                r#"
+                {
+                    "operationName": "getStream"
+                }
+            "#,
+            );
+            then.status(200).json_body(json!({"data": {
+                "media_contents": [
+                    {
+                        "__typename": "",
+                        "stream": {
+                            "expire": "0",
+                            "mid": server.url(MOCK_AUDIO_URL),
+                            "type": "flac",
+                        },
+                    }
+                ]
+            }}));
+        })
+    }
+
+    fn audio_mock(server: &MockServer) -> httpmock::Mock<'_> {
+        server.mock(|when, then| {
+            when.method(GET).path(MOCK_AUDIO_URL);
+            then.status(200).body("ohi");
+        })
+    }
+
+    fn cover_mock(server: &MockServer) -> httpmock::Mock<'_> {
+        server.mock(|when, then| {
+            when.method(GET).path(MOCK_COVER_URL);
+            then.status(200).body("ohi");
+        })
+    }
+
+    #[test]
+    fn get_lyrics() -> Result<(), Box<dyn std::error::Error>> {
+        // setup
+        let mut config = Config::try_parse_from(vec![
+            "zvul-dl",
+            "--token=1",
+            "https://zvuk.com/track/1",
+        ])?;
+        let server = MockServer::start();
+        let lyrics_mocked =
+            lyricks_mock(&server, &config.zvuk_lyrics_endpoint);
+        config.zvuk_host = server.base_url();
+        let c = Client::build(&config)?;
+
+        // execute
+        let result = c.get_lyrics(MOCK_TRACK_ID, Path::new("/tmp/1"))?;
+
+        // assert
+        lyrics_mocked.assert();
+        assert_eq!(result.text, MOCK_LYRICS);
+
+        Ok(())
+    }
+
+    #[test]
+    fn get_release_info() -> Result<(), Box<dyn std::error::Error>> {
+        // setup
+        let mut config = Config::try_parse_from(vec![
+            "zvul-dl",
+            "--token=1",
+            "https://zvuk.com/track/1",
+        ])?;
+        let server = MockServer::start();
+        let release_mocked =
+            release_mock(&server, &config.zvuk_releases_endpoint);
+        config.zvuk_host = server.base_url();
+        let c = Client::build(&config)?;
+
+        // execute
+        let result = c.get_releases_info(&[MOCK_RELEASE_ID.to_owned()])?;
+
+        // assert
+        release_mocked.assert();
+        assert_eq!(result[MOCK_RELEASE_ID].author, "Some artist");
+        assert_eq!(result[MOCK_RELEASE_ID].track_ids, &[MOCK_TRACK_ID]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn get_track_metadata() -> Result<(), Box<dyn std::error::Error>> {
+        // setup
+        let mut config = Config::try_parse_from(vec![
+            "zvul-dl",
+            "--token=1",
+            "https://zvuk.com/track/1",
+        ])?;
+        let server = MockServer::start();
+        let track_mocked = tracks_mock(&server, &config.zvuk_tracks_endpoint);
+        config.zvuk_host = server.base_url();
+        let c = Client::build(&config)?;
+
+        // execute
+        let result = c.get_tracks_metadata(&[MOCK_TRACK_ID.to_owned()])?;
+
+        // assert
+        track_mocked.assert();
+        assert_eq!(result[MOCK_TRACK_ID].author, "Some artist");
+        assert_eq!(result[MOCK_TRACK_ID].track_id, MOCK_TRACK_ID);
+
+        Ok(())
+    }
+
+    #[test]
+    fn get_download_link() -> Result<(), Box<dyn std::error::Error>> {
+        // setup
+        let mut config = Config::try_parse_from(vec![
+            "zvul-dl",
+            "--token=1",
+            "https://zvuk.com/track/1",
+        ])?;
+        let server = MockServer::start();
+        let download_mocked =
+            download_link_mock(&server, &config.zvuk_download_endpoint);
+        config.zvuk_host = server.base_url();
+        config.pause_between_getting_track_links = Duration::from_secs(0);
+        let c = Client::build(&config)?;
+
+        let metadata = HashMap::from_iter(vec![(
+            MOCK_TRACK_ID.to_string(),
+            TrackInfo {
+                author: "Some artist".to_string(),
+                name: "Some title".to_string(),
+                genre: "Some genre".to_string(),
+                number: 1,
+                release_id: "1".to_string(),
+                track_id: "1".to_string(),
+                album: "Some album".to_string(),
+                image: String::new(),
+                lyrics: false,
+                has_flac: true,
+            },
+        )]);
+
+        // execute
+        let result = c.get_tracks_links(&metadata)?;
+
+        // assert
+        download_mocked.assert();
+        assert_eq!(result[MOCK_TRACK_ID].1, Quality::Flac);
+
+        Ok(())
+    }
+
+    #[test]
+    fn get_books_metadata() -> Result<(), Box<dyn std::error::Error>> {
+        // setup
+        let mut config = Config::try_parse_from(vec![
+            "zvul-dl",
+            "--token=1",
+            "https://zvuk.com/track/1",
+        ])?;
+        let server = MockServer::start();
+        let books_mocked = books_mock(&server, &config.zvuk_graphql_endpoint);
+        config.zvuk_host = server.base_url();
+        let c = Client::build(&config)?;
+
+        // execute
+        let result = c.get_books_metadata(&[MOCK_BOOK_ID.to_owned()])?;
+
+        // assert
+        books_mocked.assert();
+        assert_eq!(result[MOCK_CHAPTER_ID].title, "Some chapter title");
+
+        Ok(())
+    }
+
+    #[test]
+    fn get_chapter_links() -> Result<(), Box<dyn std::error::Error>> {
+        // setup
+        let mut config = Config::try_parse_from(vec![
+            "zvul-dl",
+            "--token=1",
+            "https://zvuk.com/track/1",
+        ])?;
+        let server = MockServer::start();
+        let chapter_link_mocked =
+            chapter_link_mock(&server, &config.zvuk_graphql_endpoint);
+        config.zvuk_host = server.base_url();
+        let c = Client::build(&config)?;
+        let metadata = HashMap::from_iter(vec![(
+            MOCK_CHAPTER_ID.to_string(),
+            BookChapter {
+                author: "Some book author".to_string(),
+                book_title: "Some book title".to_string(),
+                title: "Some chapter title".to_string(),
+                image: String::new(),
+                number: 1,
+            },
+        )]);
+
+        // execute
+        let result = c.get_chapter_links(&metadata)?;
+
+        // assert
+        chapter_link_mocked.assert();
+        assert_eq!(result[0], server.url(MOCK_AUDIO_URL));
+
+        Ok(())
+    }
+
+    #[test]
+    fn download_albums() -> Result<(), Box<dyn std::error::Error>> {
+        // setup
+        let tmp_dir = tempfile::tempdir()?;
+        let mut config = Config::try_parse_from(vec![
+            "zvul-dl",
+            "--token=1",
+            "https://zvuk.com/track/1",
+        ])?;
+        let server = MockServer::start();
+        release_mock(&server, &config.zvuk_releases_endpoint);
+        tracks_mock(&server, &config.zvuk_tracks_endpoint);
+        lyricks_mock(&server, &config.zvuk_lyrics_endpoint);
+        download_link_mock(&server, &config.zvuk_download_endpoint);
+        audio_mock(&server);
+        cover_mock(&server);
+        config.zvuk_host = server.base_url();
+        config.pause_between_getting_track_links = Duration::from_secs(0);
+        config.output_dir = tmp_dir
+            .path()
+            .to_str()
+            .context("filepath is not valid string")?
+            .to_string();
+
+        // execute
+        let c = Client::build(&config)?;
+        c.download_albums(&[MOCK_RELEASE_ID.to_string()])?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn download_abook() -> Result<(), Box<dyn std::error::Error>> {
+        // setup
+        let tmp_dir = tempfile::tempdir()?;
+        let mut config = Config::try_parse_from(vec![
+            "zvul-dl",
+            "--token=1",
+            "https://zvuk.com/track/1",
+        ])?;
+        let server = MockServer::start();
+        books_mock(&server, &config.zvuk_graphql_endpoint);
+        chapter_link_mock(&server, &config.zvuk_graphql_endpoint);
+        audio_mock(&server);
+        cover_mock(&server);
+        config.zvuk_host = server.base_url();
+        config.output_dir = tmp_dir
+            .path()
+            .to_str()
+            .context("filepath is not valid string")?
+            .to_string();
+
+        // execute
+        let c = Client::build(&config)?;
+        c.download_abooks(&[MOCK_BOOK_ID.to_string()])?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn download() -> Result<(), Box<dyn std::error::Error>> {
+        // setup
+        let tmp_dir = tempfile::tempdir()?;
+        let mut config = Config::try_parse_from(vec![
+            "zvul-dl",
+            "--token=1",
+            &format!("https://zvuk.com/track/{MOCK_TRACK_ID}"),
+            &format!("https://zvuk.com/release/{MOCK_RELEASE_ID}"),
+            &format!("https://zvuk.com/abook/{MOCK_BOOK_ID}"),
+        ])?;
+        let server = MockServer::start();
+        release_mock(&server, &config.zvuk_releases_endpoint);
+        tracks_mock(&server, &config.zvuk_tracks_endpoint);
+        lyricks_mock(&server, &config.zvuk_lyrics_endpoint);
+        download_link_mock(&server, &config.zvuk_download_endpoint);
+        books_mock(&server, &config.zvuk_graphql_endpoint);
+        chapter_link_mock(&server, &config.zvuk_graphql_endpoint);
+        audio_mock(&server);
+        cover_mock(&server);
+        config.zvuk_host = server.base_url();
+        config.pause_between_getting_track_links = Duration::from_secs(0);
+        config.output_dir = tmp_dir
+            .path()
+            .to_str()
+            .context("filepath is not valid string")?
+            .to_string();
+
+        // execute
+        crate::zvuk::download(&config)?;
+
+        Ok(())
+    }
+}
