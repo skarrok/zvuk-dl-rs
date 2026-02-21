@@ -6,30 +6,31 @@ repository = "https://github.com/skarrok/zvuk-dl-rs"
 license = "MIT"
 
 [dependencies]
-anyhow = "1.0.99"
+anyhow = "1.0.102"
 audiotags = "0.5.0"
-chrono = { version = "0.4.41", default-features = false }
-clap = { version = "4.5.45", features = ["derive", "env"] }
+chrono = { version = "0.4.43", default-features = false }
+clap = { version = "4.5.60", features = ["derive", "env"] }
 dotenvy = "0.15.7"
-humantime = "2.2.0"
-id3 = "1.16.3"
+humantime = "2.3.0"
+id3 = "1.16.4"
 metaflac = "0.2.8"
-reqwest = { version = "0.12.23", default-features = false, features = [
+reqwest = { version = "0.13.2", default-features = false, features = [
         "blocking",
         "cookies",
         "http2",
         "json",
-        "rustls-tls",
+        "query",
+        "rustls",
 ] }
-serde_json = "1.0.142"
-serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.149"
+serde = { version = "1.0.228", features = ["derive"] }
 supports-color = "3.0.2"
-tracing-subscriber = { version = "0.3.19", features = ["json", "env-filter"] }
-tracing = { version = "0.1.41", features = ["log"] }
+tracing-subscriber = { version = "0.3.22", features = ["json", "env-filter"] }
+tracing = { version = "0.1.44", features = ["log"] }
 
 [dev-dependencies]
-httpmock = "0.8.0"
-tempfile = "3.23.0"
+httpmock = "0.8.3"
+tempfile = "3.25.0"
 
 [lints.rust]
 unsafe_code = "forbid"
@@ -88,8 +89,8 @@ publish = false
 pre-release-commit-message = "build: 🔖 release version {{version}}"
 tag-message = "build: 🔖 release version {{version}}"
 pre-release-replacements = [
-  {file="CHANGELOG.md", search="Unreleased", replace="v{{version}}"},
-  {file="CHANGELOG.md", search="<!-- next-header -->", replace="<!-- next-header -->\n\n## Unreleased", exactly=1},
+        { file = "CHANGELOG.md", search = "Unreleased", replace = "v{{version}}" },
+        { file = "CHANGELOG.md", search = "<!-- next-header -->", replace = "<!-- next-header -->\n\n## Unreleased", exactly = 1 },
 ]
 
 # The profile that 'cargo dist' will build with
