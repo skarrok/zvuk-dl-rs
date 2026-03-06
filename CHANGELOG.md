@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+## v0.4.1
+
 ### Fixed
 
 - 🐛 support getting track metadata via graphql
