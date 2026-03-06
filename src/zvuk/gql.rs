@@ -67,3 +67,85 @@ query getStream($ids: [ID!]!, $quality: String, $encodeType: String, $includeFla
   }
 }
 ";
+
+pub const ZVUK_GQL_GET_FULL_TRACK: &str = "
+query getFullTrack($ids: [ID!]!, $withReleases: Boolean = false, $withArtists: Boolean = false, $withLikesCount: Boolean = false) {
+  getTracks(ids: $ids) {
+    id
+    title
+    position
+    duration
+    artistTemplate
+    explicit
+    artistNames
+    mark
+    zchan
+    lyrics
+    collectionItemData {
+      likesCount @include(if: $withLikesCount)
+    }
+    genres {
+      id
+      name
+      rname
+    }
+    artists @include(if: $withArtists) {
+      id
+      title
+      searchTitle
+      description
+      hasPage
+      collectionItemData {
+        likesCount
+      }
+      image {
+        src
+        palette
+        paletteBottom
+      }
+      secondImage {
+        src
+        palette
+        paletteBottom
+      }
+      animation {
+        artistId
+        effect
+        image
+        background {
+          type
+          image
+          color
+          gradient
+        }
+      }
+      mark
+    }
+    release @include(if: $withReleases) {
+      id
+      title
+      searchTitle
+      type
+      date
+      image {
+        src
+        palette
+        paletteBottom
+      }
+      genres {
+        id
+        name
+        shortName
+      }
+      label {
+        id
+        title
+      }
+      availability
+      artistTemplate
+      mark
+    }
+    hasFlac
+  }
+}
+";

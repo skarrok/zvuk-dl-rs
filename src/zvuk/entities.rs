@@ -110,6 +110,32 @@ impl TryFrom<super::models::ZvukTrack> for TrackInfo {
     }
 }
 
+impl TryFrom<super::models::ZvukGQLTrack> for TrackInfo {
+    type Error = anyhow::Error;
+
+    fn try_from(
+        value: super::models::ZvukGQLTrack,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self {
+            author: value.artist_names.join(", "),
+            name: value.title,
+            album: value.release.title,
+            release_id: value.release.id,
+            track_id: value.id,
+            genre: value
+                .genres
+                .iter()
+                .map(|x| x.name.clone())
+                .collect::<Vec<_>>()
+                .join(", "),
+            number: value.position.try_into()?,
+            image: value.release.image.src,
+            lyrics: value.lyrics.unwrap_or(false),
+            has_flac: value.has_flac,
+        })
+    }
+}
+
 impl TryFrom<super::models::ZvukLyrics> for Lyrics {
     type Error = anyhow::Error;
 

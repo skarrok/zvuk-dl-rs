@@ -49,6 +49,7 @@ pub(super) struct Client {
 
     pause_between_getting_track_links: Duration,
     zvuk_releases_url: Url,
+    #[expect(dead_code)]
     zvuk_tracks_url: Url,
     zvuk_download_url: Url,
     zvuk_lyrics_url: Url,
@@ -210,10 +211,20 @@ impl Client {
         track_ids: &[String],
     ) -> anyhow::Result<HashMap<String, TrackInfo>> {
         tracing::info!("Getting tracks metadata");
+        let request = serde_json::json!({
+            "query": gql::ZVUK_GQL_GET_FULL_TRACK,
+            "variables": {
+                "ids": track_ids,
+                "withArtists": true,
+                "withReleases": true,
+                "withLikesCount": true
+            },
+            "operationName": "getFullTrack",
+        });
         let response = self
             .http
-            .get(self.zvuk_tracks_url.clone())
-            .query(&[("ids", track_ids.join(","))])
+            .post(self.zvuk_graphql_url.clone())
+            .json(&request)
             .send()
             .context("Failed to download tracks metadata")?
             .error_for_status()?;
@@ -221,13 +232,16 @@ impl Client {
         let body = response
             .json::<serde_json::Value>()
             .context("Failed to parse tracks metadata")?;
-        tracing::trace!("{0} response: {body:#?}", self.zvuk_tracks_url);
+        tracing::trace!("{0} response: {body:#?}", self.zvuk_graphql_url);
 
-        let result = super::models::ZvukResponse::deserialize(body)?.result;
-        let mut tracks = HashMap::with_capacity(result.tracks.len());
+        let result = super::models::ZvukGQLResponse::deserialize(body)?.data;
+        let Some(result) = result.get_tracks else {
+            return Err(anyhow::anyhow!("No track info in response"));
+        };
+        let mut tracks = HashMap::with_capacity(result.len());
 
-        for (track_id, track_info) in result.tracks {
-            tracks.insert(track_id.clone(), track_info.try_into()?);
+        for track in result {
+            tracks.insert(track.id.clone(), track.try_into()?);
         }
 
         Ok(tracks)
@@ -842,41 +856,97 @@ mod tests {
         path: &str,
     ) -> httpmock::Mock<'s> {
         server.mock(|when, then| {
-            when.method(GET)
-                .path(path)
-                .query_param("ids", MOCK_TRACK_ID);
-            then.status(200).json_body(json!({
-                "result": {
-                    "releases": {},
-                    "tracks": {
-                        MOCK_TRACK_ID: {
-                            "artist_ids": [],
-                            "artist_names": [],
-                            "availability": 1,
-                            "condition": "",
-                            "credits": "Some artist",
-                            "duration": 30,
-                            "explicit": false,
-                            "genres": [],
-                            "has_flac": true,
-                            "highest_quality": "flac",
-                            "id": MOCK_TRACK_ID.parse::<i64>().unwrap(),
-                            "image": {
-                                "palette": "",
-                                "palette_bottom": "",
-                                "src": server.url(MOCK_COVER_URL),
-                            },
-                            "lyrics": true,
-                            "position": 1,
-                            "price": 1,
-                            "release_id": MOCK_RELEASE_ID.parse::<i64>().unwrap(),
-                            "release_title": "Some release title",
-                            "search_credits": "",
-                            "search_title": "",
-                            "template": "",
-                            "title": "Some track title"
-                        }
+            when.method(POST).path(path).json_body_includes(
+                r#"
+                    {
+                        "operationName": "getFullTrack"
                     }
+                "#,
+            );
+            then.status(200).json_body(json!({
+                "data": {
+                    "getTracks": [
+                        {
+                            "id": MOCK_TRACK_ID,
+                            "title": "Some track title",
+                            "duration": 30,
+                            "position": 1,
+                            "artistTemplate": "{0}",
+                            "explicit": false,
+                            "artistNames": [
+                                "Some artist"
+                            ],
+                            "mark": null,
+                            "zchan": "huh",
+                            "lyrics": true,
+                            "collectionItemData": {
+                                "likesCount": 4794
+                            },
+                            "genres": [
+                                {
+                                    "id": "1",
+                                    "name": "Pop",
+                                    "rname": "Pop"
+                                }
+                            ],
+                            "artists": [
+                                {
+                                    "id": "1",
+                                    "title": "Some artist",
+                                    "searchTitle": "",
+                                    "description": "",
+                                    "hasPage": true,
+                                    "collectionItemData": {
+                                        "likesCount": 836
+                                    },
+                                    "image": {
+                                        "src": server.url(MOCK_COVER_URL),
+                                        "palette": "",
+                                        "paletteBottom": null
+                                    },
+                                    "secondImage": {
+                                        "src": server.url(MOCK_COVER_URL),
+                                        "palette": null,
+                                        "paletteBottom": null
+                                    },
+                                    "animation": null,
+                                    "mark": null
+                                }
+                            ],
+                            "release": {
+                                "id": MOCK_RELEASE_ID,
+                                "title": "Some release title",
+                                "searchTitle": "",
+                                "type": "album",
+                                "date": "2003-12-31T00:00:00",
+                                "image": {
+                                    "src": server.url(MOCK_COVER_URL),
+                                    "palette": "",
+                                    "paletteBottom": ""
+                                },
+                                "genres": [
+                                    {
+                                        "id": "1",
+                                        "name": "Pop",
+                                        "shortName": ""
+                                    },
+                                    {
+                                        "id": "2",
+                                        "name": "English Pop",
+                                        "shortName": "Pop"
+                                    }
+                                ],
+                                "label": {
+                                    "id": "1",
+                                    "title": "Some label title"
+                                },
+                                "availability": 2,
+                                "artistTemplate": "{0}",
+                                "mark": null
+                            },
+                            "hasFlac": true
+                        }
+                    ]
                 }
             }));
         })
@@ -1083,7 +1153,7 @@ mod tests {
             "https://zvuk.com/track/1",
         ])?;
         let server = MockServer::start();
-        let track_mocked = tracks_mock(&server, &config.zvuk_tracks_endpoint);
+        let track_mocked = tracks_mock(&server, &config.zvuk_graphql_endpoint);
         config.zvuk_host = server.base_url();
         let c = Client::build(&config)?;
 
@@ -1207,7 +1277,7 @@ mod tests {
         ])?;
         let server = MockServer::start();
         release_mock(&server, &config.zvuk_releases_endpoint);
-        tracks_mock(&server, &config.zvuk_tracks_endpoint);
+        tracks_mock(&server, &config.zvuk_graphql_endpoint);
         lyricks_mock(&server, &config.zvuk_lyrics_endpoint);
         download_link_mock(&server, &config.zvuk_download_endpoint);
         audio_mock(&server);
@@ -1268,7 +1338,7 @@ mod tests {
         ])?;
         let server = MockServer::start();
         release_mock(&server, &config.zvuk_releases_endpoint);
-        tracks_mock(&server, &config.zvuk_tracks_endpoint);
+        tracks_mock(&server, &config.zvuk_graphql_endpoint);
         lyricks_mock(&server, &config.zvuk_lyrics_endpoint);
         download_link_mock(&server, &config.zvuk_download_endpoint);
         books_mock(&server, &config.zvuk_graphql_endpoint);
