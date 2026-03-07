@@ -131,7 +131,7 @@ impl TryFrom<super::models::ZvukGQLTrack> for TrackInfo {
             number: value.position.try_into()?,
             image: value.release.image.src,
             lyrics: value.lyrics.unwrap_or(false),
-            has_flac: value.has_flac,
+            has_flac: value.has_flac.unwrap_or(false),
         })
     }
 }

@@ -851,6 +851,7 @@ mod tests {
         })
     }
 
+    #[allow(clippy::too_many_lines)]
     fn tracks_mock<'s>(
         server: &'s MockServer,
         path: &str,
@@ -909,7 +910,17 @@ mod tests {
                                         "palette": null,
                                         "paletteBottom": null
                                     },
-                                    "animation": null,
+                                    "animation": {
+                                        "artistId": "238949",
+                                        "background": {
+                                            "color": null,
+                                            "gradient": null,
+                                            "image": server.url(MOCK_COVER_URL),
+                                            "type": "image",
+                                        },
+                                        "effect": "magnifyPulse",
+                                        "image": server.url(MOCK_COVER_URL),
+                                    },
                                     "mark": null
                                 }
                             ],

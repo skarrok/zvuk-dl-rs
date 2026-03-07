@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- 🐛 parsing track metadata ([#7](https://github.com/skarrok/zvuk-dl-rs/issues/7))
+
 ## v0.4.1
 
 ### Fixed

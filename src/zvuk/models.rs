@@ -189,7 +189,7 @@ pub(super) struct ZvukGQLTrack {
     pub(super) artists: Vec<ZvukGQLArtist>,
     pub(super) release: ZvukGQLRelease,
     #[serde(alias = "hasFlac")]
-    pub(super) has_flac: bool,
+    pub(super) has_flac: Option<bool>,
 }
 
 #[expect(unused)]
@@ -207,8 +207,6 @@ pub(super) struct ZvukGQLArtist {
     pub(super) image: ZvukGQLImage,
     #[serde(alias = "secondImage")]
     second_image: ZvukGQLImage,
-    animation: Option<String>,
-    mark: Option<String>,
 }
 
 #[expect(unused)]
