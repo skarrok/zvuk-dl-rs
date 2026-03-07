@@ -199,7 +199,7 @@ pub(super) struct ZvukGQLArtist {
     pub(super) title: String,
     #[serde(alias = "searchTitle")]
     search_title: String,
-    description: String,
+    description: Option<String>,
     #[serde(alias = "hasPage")]
     has_page: bool,
     #[serde(alias = "collectionItemData")]

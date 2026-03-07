@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- 🐛 parsing track metadata ([#7](https://github.com/skarrok/zvuk-dl-rs/issues/7))
+
+  mark ZvukGQLArtist.description as optional
+
 ## v0.4.2
 
 ### Fixed
@@ -15,7 +21,7 @@
 ### Fixed
 
 - 🐛 support getting track metadata via graphql
-  
+
 ## v0.4.0
 
 - feat: ✨ add ability to download audio books ([#5](https://github.com/skarrok/zvuk-dl-rs/issues/5))
