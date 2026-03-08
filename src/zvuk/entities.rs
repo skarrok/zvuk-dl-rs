@@ -68,12 +68,10 @@ pub(super) struct TrackInfo {
     pub(super) has_flac: bool,
 }
 
-impl TryFrom<super::models::ZvukRelease> for ReleaseInfo {
+impl TryFrom<super::dto::ZvukRelease> for ReleaseInfo {
     type Error = anyhow::Error;
 
-    fn try_from(
-        value: super::models::ZvukRelease,
-    ) -> Result<Self, Self::Error> {
+    fn try_from(value: super::dto::ZvukRelease) -> Result<Self, Self::Error> {
         let track_ids: Vec<String> = value
             .track_ids
             .iter()
@@ -91,10 +89,10 @@ impl TryFrom<super::models::ZvukRelease> for ReleaseInfo {
     }
 }
 
-impl TryFrom<super::models::ZvukTrack> for TrackInfo {
+impl TryFrom<super::dto::ZvukTrack> for TrackInfo {
     type Error = anyhow::Error;
 
-    fn try_from(value: super::models::ZvukTrack) -> Result<Self, Self::Error> {
+    fn try_from(value: super::dto::ZvukTrack) -> Result<Self, Self::Error> {
         Ok(Self {
             author: value.credits,
             name: value.title,
@@ -110,12 +108,10 @@ impl TryFrom<super::models::ZvukTrack> for TrackInfo {
     }
 }
 
-impl TryFrom<super::models::ZvukGQLTrack> for TrackInfo {
+impl TryFrom<super::dto::ZvukGQLTrack> for TrackInfo {
     type Error = anyhow::Error;
 
-    fn try_from(
-        value: super::models::ZvukGQLTrack,
-    ) -> Result<Self, Self::Error> {
+    fn try_from(value: super::dto::ZvukGQLTrack) -> Result<Self, Self::Error> {
         Ok(Self {
             author: value.artist_names.join(", "),
             name: value.title,
@@ -136,12 +132,10 @@ impl TryFrom<super::models::ZvukGQLTrack> for TrackInfo {
     }
 }
 
-impl TryFrom<super::models::ZvukLyrics> for Lyrics {
+impl TryFrom<super::dto::ZvukLyrics> for Lyrics {
     type Error = anyhow::Error;
 
-    fn try_from(
-        value: super::models::ZvukLyrics,
-    ) -> Result<Self, Self::Error> {
+    fn try_from(value: super::dto::ZvukLyrics) -> Result<Self, Self::Error> {
         let lyrics_type = if value.type_ == "subtitle" {
             LyricsKind::Subtitle
         } else {
@@ -164,11 +158,11 @@ pub(super) struct BookChapter {
     pub(super) number: u32,
 }
 
-impl TryFrom<super::models::ZvukGQLChapter> for BookChapter {
+impl TryFrom<super::dto::ZvukGQLChapter> for BookChapter {
     type Error = anyhow::Error;
 
     fn try_from(
-        value: super::models::ZvukGQLChapter,
+        value: super::dto::ZvukGQLChapter,
     ) -> Result<Self, Self::Error> {
         Ok(Self {
             author: value

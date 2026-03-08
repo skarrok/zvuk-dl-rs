@@ -1,7 +1,7 @@
 mod client;
+mod dto;
 mod entities;
 mod gql;
-mod models;
 
 use std::collections::HashMap;
 

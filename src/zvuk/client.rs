@@ -128,7 +128,7 @@ impl Client {
             .context("Failed to parse releases metadata")?;
         tracing::trace!("{0} response: {body:#?}", self.zvuk_releases_url);
 
-        let result = super::models::ZvukResponse::deserialize(body)?.result;
+        let result = super::dto::ZvukResponse::deserialize(body)?.result;
         let mut releases = HashMap::with_capacity(result.releases.len());
 
         for (release_id, release_info) in result.releases {
@@ -234,7 +234,7 @@ impl Client {
             .context("Failed to parse tracks metadata")?;
         tracing::trace!("{0} response: {body:#?}", self.zvuk_graphql_url);
 
-        let result = super::models::ZvukGQLResponse::deserialize(body)?.data;
+        let result = super::dto::ZvukGQLResponse::deserialize(body)?.data;
         let Some(result) = result.get_tracks else {
             return Err(anyhow::anyhow!("No track info in response"));
         };
@@ -307,7 +307,7 @@ impl Client {
         );
 
         let result =
-            super::models::ZvukDownloadResponse::deserialize(body)?.result;
+            super::dto::ZvukDownloadResponse::deserialize(body)?.result;
         Ok(result.stream)
     }
 
@@ -356,8 +356,7 @@ impl Client {
             .json::<serde_json::Value>()
             .context("Failed to parse lyrics")?;
         tracing::trace!("{0} response: {body:#?}", self.zvuk_lyrics_url);
-        let result =
-            super::models::ZvukLyricsResponse::deserialize(body)?.result;
+        let result = super::dto::ZvukLyricsResponse::deserialize(body)?.result;
         result.try_into()
     }
 
@@ -751,7 +750,7 @@ impl Client {
             .context("Failed to parse books metadata")?;
         tracing::trace!("{0} response: {body:#?}", self.zvuk_graphql_url);
 
-        let result = super::models::ZvukGQLResponse::deserialize(body)?.data;
+        let result = super::dto::ZvukGQLResponse::deserialize(body)?.data;
         let Some(result) = result.get_books else {
             return Err(anyhow::anyhow!("No book info in response"));
         };
@@ -794,7 +793,7 @@ impl Client {
             .context("Failed to parse urls")?;
         tracing::trace!("{0} response: {body:#?}", self.zvuk_graphql_url);
 
-        let result = super::models::ZvukGQLResponse::deserialize(body)?.data;
+        let result = super::dto::ZvukGQLResponse::deserialize(body)?.data;
         let Some(result) = result.media_contents else {
             return Err(anyhow::anyhow!("No media contents in response"));
         };
