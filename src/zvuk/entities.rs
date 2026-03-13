@@ -4,6 +4,7 @@ use clap::ValueEnum;
 use serde::Serialize;
 
 #[derive(ValueEnum, Debug, Clone, Serialize, PartialEq, Eq, Copy)]
+#[serde(rename_all = "lowercase")]
 pub enum Quality {
     Flac,
     // 320 kbps

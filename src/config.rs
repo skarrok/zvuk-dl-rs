@@ -100,6 +100,7 @@ pub struct Config {
     pub user_agent: String,
 
     /// Timeout for network requests
+    #[serde(serialize_with = "serialize_duration")]
     #[arg(
         long,
         env,
@@ -161,6 +162,7 @@ pub struct Config {
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum LogFormat {
     /// Pretty logs for debugging
     Console,
@@ -169,6 +171,7 @@ pub enum LogFormat {
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum LogLevel {
     Off,
     Trace,
@@ -197,6 +200,16 @@ where
 {
     static MASK: &str = "******";
     s.serialize_str(MASK)
+}
+
+pub fn serialize_duration<S>(
+    duration: &Duration,
+    s: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    s.serialize_str(&humantime::format_duration(*duration).to_string())
 }
 
 pub trait LogStruct {
