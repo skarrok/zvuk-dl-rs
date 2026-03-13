@@ -1,6 +1,8 @@
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
+    sync::{mpsc, Arc, Mutex},
+    thread,
     time::Duration,
 };
 
@@ -46,8 +48,9 @@ pub(super) struct Client {
     resize_command: String,
     quality: Quality,
     output_dir: PathBuf,
+    parallel: usize,
+    pause_between_track_downloads: Duration,
 
-    pause_between_getting_track_links: Duration,
     zvuk_releases_url: Url,
     #[expect(dead_code)]
     zvuk_tracks_url: Url,
@@ -91,10 +94,11 @@ impl Client {
             resize_cover_limit: config.resize_cover_limit,
             download_lyrics: config.download_lyrics,
             resize_command: config.resize_command.clone(),
-            pause_between_getting_track_links: config
-                .pause_between_getting_track_links,
             quality: config.quality,
             output_dir: PathBuf::from(&config.output_dir),
+            parallel: config.parallel.try_into()?,
+            pause_between_track_downloads: config
+                .pause_between_track_downloads,
 
             zvuk_releases_url,
             zvuk_tracks_url,
@@ -164,21 +168,13 @@ impl Client {
         let metadata = self
             .get_tracks_metadata(track_ids)
             .context("Failed to get tracks metadata")?;
-        let links = self
-            .get_tracks_links(&metadata)
-            .context("Failed to get tracks download links")?;
 
-        if metadata.len() != links.len() {
-            return Err(anyhow::anyhow!(
-                "metadata and links have different length"
-            ));
-        }
         let releases_ = if releases.is_empty() {
             let mut release_ids = HashSet::new();
             for track_info in metadata.values() {
                 release_ids.insert(track_info.release_id.clone());
             }
-            let release_ids = release_ids.into_iter().collect::<Vec<String>>();
+            let release_ids = release_ids.into_iter().collect::<Vec<_>>();
             &self
                 .get_releases_info(&release_ids)
                 .context("Failed to get releases metadata")?
@@ -186,24 +182,172 @@ impl Client {
             releases
         };
 
-        for (track_id, track_info) in metadata {
-            let (link, actual_quality) =
-                links.get(&track_id).context("no link")?;
-            let result = self.get_and_save_track(
-                link.as_str(),
-                &track_info,
-                releases_
-                    .get(&track_info.release_id)
-                    .context("no release info")?,
-                *actual_quality,
-            );
-            if let Err(e) = result {
-                tracing::warn!(
-                    "Failed to download and process track id={track_id}: {e:#}"
-                );
+        let cover_paths = self
+            .prepare_release_covers(&metadata, releases_)
+            .context("Failed to prepare release covers")?;
+
+        let download_track_ids = metadata.keys().cloned().collect::<Vec<_>>();
+        let workers = self.parallel.clamp(1, download_track_ids.len().max(1));
+
+        tracing::debug!(
+            "Downloading {} tracks with {workers} workers",
+            download_track_ids.len()
+        );
+
+        let (sender, receiver) = mpsc::sync_channel::<String>(workers);
+        let receiver = Arc::new(Mutex::new(receiver));
+
+        let metadata = &metadata;
+        let cover_paths = &cover_paths;
+
+        thread::scope(|scope| {
+            for _ in 0..workers {
+                let receiver = Arc::clone(&receiver);
+                scope.spawn(move || loop {
+                    let track_id = {
+                        let Ok(receiver) = receiver.lock() else {
+                            tracing::warn!(
+                                "Failed to lock track queue receiver"
+                            );
+                            break;
+                        };
+
+                        receiver.recv()
+                    };
+
+                    let Ok(track_id) = track_id else {
+                        break;
+                    };
+
+                    if self.pause_between_track_downloads.as_secs_f64() > 0.0 {
+                        thread::sleep(self.pause_between_track_downloads);
+                    }
+
+                    self.download_track_by_id(
+                        track_id.as_str(),
+                        metadata,
+                        releases_,
+                        cover_paths,
+                    );
+                });
             }
-        }
+
+            for track_id in download_track_ids {
+                if sender.send(track_id).is_err() {
+                    tracing::warn!("Failed to send track id to worker queue");
+                    break;
+                }
+            }
+            drop(sender);
+        });
+
         Ok(())
+    }
+
+    fn prepare_release_covers(
+        &self,
+        metadata: &HashMap<String, TrackInfo>,
+        releases: &HashMap<String, ReleaseInfo>,
+    ) -> anyhow::Result<HashMap<String, PathBuf>> {
+        let mut cover_paths = HashMap::new();
+
+        for track_info in metadata.values() {
+            if cover_paths.contains_key(&track_info.release_id) {
+                continue;
+            }
+
+            let release_info =
+                releases.get(&track_info.release_id).with_context(|| {
+                    format!(
+                        "No release metadata for id={} while preparing covers",
+                        track_info.release_id
+                    )
+                })?;
+
+            let directory_name = sanitize_path(&format!(
+                "{} - {} ({})",
+                release_info.author,
+                release_info.album,
+                release_info.date.chars().take(4).collect::<String>()
+            ));
+            let directory_path = self.output_dir.join(directory_name);
+
+            std::fs::create_dir_all(&directory_path).with_context(|| {
+                format!(
+                    "Failed to create directory {}",
+                    directory_path.display()
+                )
+            })?;
+
+            let cover_path = directory_path.join("cover.jpg");
+            self.download_cover(&track_info.image, &cover_path).with_context(
+                || {
+                    format!(
+                        "Failed to download and process album cover for release {}",
+                        track_info.release_id
+                    )
+                },
+            )?;
+
+            cover_paths.insert(track_info.release_id.clone(), cover_path);
+        }
+
+        Ok(cover_paths)
+    }
+
+    fn download_track_by_id(
+        &self,
+        track_id: &str,
+        metadata: &HashMap<String, TrackInfo>,
+        releases: &HashMap<String, ReleaseInfo>,
+        cover_paths: &HashMap<String, PathBuf>,
+    ) {
+        if let Err(e) = self.try_download_track_by_id(
+            track_id,
+            metadata,
+            releases,
+            cover_paths,
+        ) {
+            tracing::warn!(
+                "Failed to download and process track id={track_id}: {e:#}"
+            );
+        }
+    }
+
+    fn try_download_track_by_id(
+        &self,
+        track_id: &str,
+        metadata: &HashMap<String, TrackInfo>,
+        releases: &HashMap<String, ReleaseInfo>,
+        cover_paths: &HashMap<String, PathBuf>,
+    ) -> anyhow::Result<()> {
+        let track_info = metadata.get(track_id).with_context(|| {
+            format!("Missing metadata for track id={track_id}")
+        })?;
+
+        let actual_quality = self.determine_effective_quality(track_info);
+
+        let link = self
+            .fetch_track_link(track_id, actual_quality)
+            .with_context(|| {
+                format!("Failed to get download link for track id={track_id}")
+            })?;
+        let release_info =
+            releases.get(&track_info.release_id).with_context(|| {
+                format!("Missing release info for track id={track_id}")
+            })?;
+        let cover_path =
+            cover_paths.get(&track_info.release_id).with_context(|| {
+                format!("Missing cover path for track id={track_id}")
+            })?;
+
+        self.get_and_save_track(
+            &link,
+            track_info,
+            release_info,
+            cover_path,
+            actual_quality,
+        )
     }
 
     fn get_tracks_metadata(
@@ -258,27 +402,6 @@ impl Client {
         }
     }
 
-    fn log_quality_selection(
-        &self,
-        track_id: &str,
-        effective_quality: Quality,
-        has_flac: bool,
-    ) {
-        if effective_quality == self.quality {
-            tracing::debug!(
-                "Track id {track_id}: Using requested {} quality (FLAC available: {})",
-                effective_quality,
-                has_flac
-            );
-        } else {
-            tracing::info!(
-                "Track id {track_id}: Falling back to {} quality (FLAC available: {})",
-                effective_quality,
-                has_flac
-            );
-        }
-    }
-
     fn fetch_track_link(
         &self,
         track_id: &str,
@@ -309,34 +432,6 @@ impl Client {
         let result =
             super::dto::ZvukDownloadResponse::deserialize(body)?.result;
         Ok(result.stream)
-    }
-
-    fn get_tracks_links(
-        &self,
-        metadata: &HashMap<String, TrackInfo>,
-    ) -> anyhow::Result<HashMap<String, (String, Quality)>> {
-        tracing::info!(
-            "Getting download urls (requested: {} quality)",
-            self.quality
-        );
-        let mut urls = HashMap::new();
-
-        for (track_id, track_info) in metadata {
-            let effective_quality =
-                self.determine_effective_quality(track_info);
-            self.log_quality_selection(
-                track_id,
-                effective_quality,
-                track_info.has_flac,
-            );
-
-            let link = self.fetch_track_link(track_id, effective_quality)?;
-
-            urls.insert(track_id.clone(), (link, effective_quality));
-
-            std::thread::sleep(self.pause_between_getting_track_links);
-        }
-        Ok(urls)
     }
 
     fn get_lyrics(
@@ -407,6 +502,7 @@ impl Client {
         url: &str,
         track_info: &TrackInfo,
         release_info: &ReleaseInfo,
+        cover_path: &Path,
         actual_quality: Quality,
     ) -> anyhow::Result<()> {
         let directory_name = sanitize_path(&format!(
@@ -420,10 +516,6 @@ impl Client {
         std::fs::create_dir_all(&directory_path).with_context(|| {
             format!("Failed to create directory {}", directory_path.display())
         })?;
-
-        let cover_path = directory_path.join("cover.jpg");
-        self.download_cover(&track_info.image, &cover_path)
-            .context("Failed to download and process album cover")?;
 
         let filename = sanitize_path(&format!(
             "{:02} - {}.{}",
@@ -442,7 +534,11 @@ impl Client {
             return Ok(());
         }
 
-        tracing::info!("Downloading {}", filepath.display());
+        tracing::info!(
+            "Downloading {} {}",
+            actual_quality,
+            filepath.display()
+        );
 
         let response = self
             .http
@@ -458,7 +554,7 @@ impl Client {
 
         self.write_tags(
             &filepath,
-            &cover_path,
+            cover_path,
             track_info,
             release_info,
             actual_quality,
@@ -470,7 +566,7 @@ impl Client {
     fn write_tags(
         &self,
         filepath: &Path,
-        cover_path: &PathBuf,
+        cover_path: &Path,
         track_info: &TrackInfo,
         release_info: &ReleaseInfo,
         actual_quality: Quality,
@@ -632,17 +728,90 @@ impl Client {
             ));
         }
 
-        for ((chapter_id, chapter_info), chapter_link) in
-            metadata.into_iter().zip(links)
-        {
-            let result = self
-                .get_and_save_chapter(chapter_link.as_str(), &chapter_info);
-            if let Err(e) = result {
-                tracing::warn!("Failed to download and process chapter id={chapter_id}: {e:#}");
+        let chapter_ids = metadata.keys().cloned().collect::<Vec<_>>();
+        let workers = self.parallel.clamp(1, chapter_ids.len().max(1));
+
+        tracing::debug!(
+            "Downloading {} chapters with {workers} workers",
+            chapter_ids.len()
+        );
+
+        let (sender, receiver) = mpsc::sync_channel::<String>(workers);
+        let receiver = Arc::new(Mutex::new(receiver));
+
+        let metadata = &metadata;
+        let links = &links;
+
+        thread::scope(|scope| {
+            for _ in 0..workers {
+                let receiver = Arc::clone(&receiver);
+                scope.spawn(move || loop {
+                    let chapter_id = {
+                        let Ok(receiver) = receiver.lock() else {
+                            tracing::warn!(
+                                "Failed to lock chapter queue receiver"
+                            );
+                            break;
+                        };
+
+                        receiver.recv()
+                    };
+
+                    let Ok(chapter_id) = chapter_id else {
+                        break;
+                    };
+
+                    self.download_chapter_by_id(
+                        chapter_id.as_str(),
+                        metadata,
+                        links,
+                    );
+                });
             }
-        }
+
+            for chapter_id in chapter_ids {
+                if sender.send(chapter_id).is_err() {
+                    tracing::warn!(
+                        "Failed to send chapter id to worker queue"
+                    );
+                    break;
+                }
+            }
+            drop(sender);
+        });
 
         Ok(())
+    }
+
+    fn download_chapter_by_id(
+        &self,
+        chapter_id: &str,
+        metadata: &HashMap<String, BookChapter>,
+        links: &HashMap<String, String>,
+    ) {
+        if let Err(e) =
+            self.try_download_chapter_by_id(chapter_id, metadata, links)
+        {
+            tracing::warn!(
+                "Failed to download and process chapter id={chapter_id}: {e:#}"
+            );
+        }
+    }
+
+    fn try_download_chapter_by_id(
+        &self,
+        chapter_id: &str,
+        metadata: &HashMap<String, BookChapter>,
+        links: &HashMap<String, String>,
+    ) -> anyhow::Result<()> {
+        let chapter_info = metadata.get(chapter_id).with_context(|| {
+            format!("Missing chapter metadata for id={chapter_id}")
+        })?;
+        let chapter_link = links.get(chapter_id).with_context(|| {
+            format!("Missing chapter download link for id={chapter_id}")
+        })?;
+
+        self.get_and_save_chapter(chapter_link, chapter_info)
     }
 
     fn get_and_save_chapter(
@@ -768,11 +937,10 @@ impl Client {
     fn get_chapter_links(
         &self,
         metadata: &HashMap<String, BookChapter>,
-    ) -> anyhow::Result<Vec<String>> {
+    ) -> anyhow::Result<HashMap<String, String>> {
         tracing::info!("Getting download urls");
-        let mut links = Vec::with_capacity(metadata.len());
+        let chapter_ids = metadata.keys().cloned().collect::<Vec<_>>();
 
-        let chapter_ids: Vec<_> = metadata.keys().collect();
         let request = serde_json::json!({
             "query": gql::ZVUK_GQL_GET_STREAM,
             "variables": {
@@ -798,8 +966,16 @@ impl Client {
             return Err(anyhow::anyhow!("No media contents in response"));
         };
 
-        for content in result {
-            links.push(content.stream.mid);
+        if result.len() != chapter_ids.len() {
+            return Err(anyhow::anyhow!(
+                "chapter links and chapter ids have different length"
+            ));
+        }
+
+        let mut links = HashMap::with_capacity(result.len());
+
+        for (chapter_id, content) in chapter_ids.into_iter().zip(result) {
+            links.insert(chapter_id, content.stream.mid);
         }
 
         Ok(links)
@@ -1022,6 +1198,21 @@ mod tests {
         })
     }
 
+    fn download_link_fail_mock<'s>(
+        server: &'s MockServer,
+        path: &str,
+    ) -> httpmock::Mock<'s> {
+        server.mock(|when, then| {
+            when.method(GET)
+                .path(path)
+                .query_param("quality", "flac")
+                .query_param("id", MOCK_TRACK_ID);
+            then.status(500).json_body(json!({
+                "error": "boom"
+            }));
+        })
+    }
+
     fn books_mock<'s>(
         server: &'s MockServer,
         path: &str,
@@ -1190,31 +1381,48 @@ mod tests {
         let download_mocked =
             download_link_mock(&server, &config.zvuk_download_endpoint);
         config.zvuk_host = server.base_url();
-        config.pause_between_getting_track_links = Duration::from_secs(0);
         let c = Client::build(&config)?;
 
-        let metadata = HashMap::from_iter(vec![(
-            MOCK_TRACK_ID.to_string(),
-            TrackInfo {
-                author: "Some artist".to_string(),
-                name: "Some title".to_string(),
-                genre: "Some genre".to_string(),
-                number: 1,
-                release_id: "1".to_string(),
-                track_id: "1".to_string(),
-                album: "Some album".to_string(),
-                image: String::new(),
-                lyrics: false,
-                has_flac: true,
-            },
-        )]);
-
         // execute
-        let result = c.get_tracks_links(&metadata)?;
+        let result = c.fetch_track_link(MOCK_TRACK_ID, Quality::Flac)?;
 
         // assert
         download_mocked.assert();
-        assert_eq!(result[MOCK_TRACK_ID].1, Quality::Flac);
+        assert_eq!(result, server.url(MOCK_AUDIO_URL));
+
+        Ok(())
+    }
+
+    #[test]
+    fn download_tracks_continues_when_link_fails(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // setup
+        let tmp_dir = tempfile::tempdir()?;
+        let mut config = Config::try_parse_from(vec![
+            "zvul-dl",
+            "--token=1",
+            "https://zvuk.com/track/1",
+        ])?;
+        let server = MockServer::start();
+        tracks_mock(&server, &config.zvuk_graphql_endpoint);
+        release_mock(&server, &config.zvuk_releases_endpoint);
+        let failed_download_mock =
+            download_link_fail_mock(&server, &config.zvuk_download_endpoint);
+        let cover_mocked = cover_mock(&server);
+        config.zvuk_host = server.base_url();
+        config.output_dir = tmp_dir
+            .path()
+            .to_str()
+            .context("filepath is not valid string")?
+            .to_string();
+
+        // execute
+        let c = Client::build(&config)?;
+        c.download_tracks(&[MOCK_TRACK_ID.to_string()], &HashMap::new())?;
+
+        // assert
+        failed_download_mock.assert();
+        cover_mocked.assert();
 
         Ok(())
     }
@@ -1271,7 +1479,7 @@ mod tests {
 
         // assert
         chapter_link_mocked.assert();
-        assert_eq!(result[0], server.url(MOCK_AUDIO_URL));
+        assert_eq!(result[MOCK_CHAPTER_ID], server.url(MOCK_AUDIO_URL));
 
         Ok(())
     }
@@ -1293,7 +1501,6 @@ mod tests {
         audio_mock(&server);
         cover_mock(&server);
         config.zvuk_host = server.base_url();
-        config.pause_between_getting_track_links = Duration::from_secs(0);
         config.output_dir = tmp_dir
             .path()
             .to_str()
@@ -1356,7 +1563,6 @@ mod tests {
         audio_mock(&server);
         cover_mock(&server);
         config.zvuk_host = server.base_url();
-        config.pause_between_getting_track_links = Duration::from_secs(0);
         config.output_dir = tmp_dir
             .path()
             .to_str()

@@ -110,6 +110,16 @@ pub struct Config {
     )]
     pub request_timeout: Duration,
 
+    /// Number of tracks to download in parallel
+    #[arg(
+        long,
+        env,
+        short = 'p',
+        default_value_t = 1,
+        value_parser = clap::value_parser!(u64).range(1..1000),
+    )]
+    pub parallel: u64,
+
     /// Verbosity of logging
     #[arg(long, value_enum, env, default_value_t = LogLevel::Debug)]
     pub log_level: LogLevel,
@@ -119,16 +129,16 @@ pub struct Config {
     pub log_format: LogFormat,
 
     // hidden options
-    /// How long to wait between getting track links
+    /// How long to wait between downloading tracks
     #[serde(skip)]
     #[arg(
         long,
         env,
         hide = true,
-        default_value = "1s",
+        default_value = "0",
         value_parser = humantime::parse_duration,
     )]
-    pub pause_between_getting_track_links: Duration,
+    pub pause_between_track_downloads: Duration,
 
     /// Base API host for zvuk
     #[serde(skip)]

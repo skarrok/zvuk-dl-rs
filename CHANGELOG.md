@@ -4,6 +4,13 @@
 
 ## Unreleased
 
+### Added
+
+- feat: ✨ parallel track download
+
+  Download tracks and audiobook chapters concurrently with configurable
+  worker count via `--parallel` option. Default is set to 1.
+
 ## v0.4.3
 
 ### Fixed

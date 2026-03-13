@@ -133,6 +133,12 @@ Options:
           [env: REQUEST_TIMEOUT=]
           [default: 60s]
 
+  -p, --parallel <PARALLEL>
+          Number of tracks to download in parallel
+
+          [env: PARALLEL=]
+          [default: 1]
+
       --log-level <LOG_LEVEL>
           Verbosity of logging
 
@@ -143,12 +149,12 @@ Options:
       --log-format <LOG_FORMAT>
           Format of logs
 
-          [env: LOG_FORMAT=]
-          [default: console]
-
           Possible values:
           - console: Pretty logs for debugging
           - json:    JSON logs
+
+          [env: LOG_FORMAT=]
+          [default: console]
 
   -h, --help
           Print help (see a summary with '-h')
