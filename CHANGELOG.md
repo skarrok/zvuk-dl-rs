@@ -1,17 +1,22 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
 <!-- next-header -->
 
-## Unreleased
+## [Unreleased] - ReleaseDate
 
 ### Added
 
-- feat: ✨ parallel track download
+- ✨ Add parallel track download
 
   Download tracks and audiobook chapters concurrently with configurable
   worker count via `--parallel` option. Default is set to 1.
 
-## v0.4.3
+## [0.4.3] - 2026-03-07
 
 ### Fixed
 
@@ -19,44 +24,46 @@
 
   mark ZvukGQLArtist.description as optional
 
-## v0.4.2
+## [0.4.2] - 2026-03-07
 
 ### Fixed
 
 - 🐛 parsing track metadata ([#7](https://github.com/skarrok/zvuk-dl-rs/issues/7))
 
-## v0.4.1
+## [0.4.1] - 2026-03-07
 
 ### Fixed
 
 - 🐛 support getting track metadata via graphql
 
-## v0.4.0
-
-- feat: ✨ add ability to download audio books ([#5](https://github.com/skarrok/zvuk-dl-rs/issues/5))
-
-  URLs like https://zvuk.com/abook/32124448 now work!
-
-- feat: ✨ add timeout option for network requests
-
-  Add `--request-timeout` or `-t` option to configure network timeouts
-
-## v0.3.0
+## [0.4.0] - 2025-08-16
 
 ### Added
 
-- feat: ✨ add output directory option by @xzeldon
+- ✨ Add ability to download audio books ([#5](https://github.com/skarrok/zvuk-dl-rs/issues/5))
+
+  URLs like https://zvuk.com/abook/32124448 now work!
+
+- ✨ Add timeout option for network requests
+
+  Add `--request-timeout` or `-t` option to configure network timeouts
+
+## [0.3.0] - 2025-04-06
+
+### Added
+
+- ✨ Add output directory option by @xzeldon
 
   Introduce the --output-dir (`-o`) flag to allow specifying the
   download destination directory. Defaults to the current directory.
 
-- feat: ✨ add quality fallback by @xzeldon
+- ✨ Add quality fallback by @xzeldon
 
   Implement automatic quality fallback: If the requested quality is
   unavailable, the application will now attempt to download the next
   best quality available (FLAC -> MP3High -> MP3Mid).
 
-## v0.2.2
+## [0.2.2] - 2024-11-29
 
 ### Fixed
 
@@ -70,7 +77,7 @@
 
   treat it as `lyrics` type
 
-## v0.2.1
+## [0.2.1] - 2024-10-14
 
 ### Fixed
 
@@ -82,7 +89,7 @@
   - on windows: `<`, `>`, `:`, `"`, `/`, `\\`, `|`, `?`, `*`
   - on unix: `/`
 
-## v0.2.0
+## [0.2.0] - 2024-09-29
 
 ### Added
 
@@ -93,6 +100,18 @@
   Default is `flac`. Usually `mp3-high` has 320 kbps bitrate and `mp3-mid`
   is 128 kbps.
 
-## v0.1.0
+## [0.1.0] - 2024-09-22
 
 🎉 Initial release
+
+<!-- next-url -->
+[Unreleased]: https://github.com/skarrok/zvuk-dl-rs/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/skarrok/zvuk-dl-rs/compare/v0.4.2...v0.4.3
+[0.4.2]: https://github.com/skarrok/zvuk-dl-rs/compare/v0.4.1...v0.4.2
+[0.4.1]: https://github.com/skarrok/zvuk-dl-rs/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/skarrok/zvuk-dl-rs/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/skarrok/zvuk-dl-rs/compare/v0.2.2...v0.3.0
+[0.2.2]: https://github.com/skarrok/zvuk-dl-rs/compare/v0.2.1...v0.2.2
+[0.2.1]: https://github.com/skarrok/zvuk-dl-rs/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/skarrok/zvuk-dl-rs/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/skarrok/zvuk-dl-rs/releases/tag/v0.1.0
