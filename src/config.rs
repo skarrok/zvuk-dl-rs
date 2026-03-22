@@ -30,10 +30,13 @@ const fn styles() -> clap::builder::Styles {
 #[command(author, version, about, long_about = None, styles=styles())]
 pub struct Config {
     #[allow(clippy::doc_markdown)]
-    /// URLs of releases or tracks
+    /// URLs of releases, tracks, audiobooks or playlists
     ///
-    /// URLs must look like https://zvuk.com/track/128672726 or https://zvuk.com/release/29970563
-    #[arg(required = true, num_args = 1..)]
+    /// URLs must look like https://zvuk.com/track/128672726
+    /// or https://zvuk.com/release/29970563
+    /// or https://zvuk.com/abook/32124448
+    /// or https://zvuk.com/playlist/8081036
+    #[arg(required = true, num_args = 1.., verbatim_doc_comment)]
     pub urls: Vec<String>,
 
     /// Zvuk Token

@@ -20,12 +20,17 @@ pub fn download(config: &Config) -> anyhow::Result<()> {
     let mut release_ids = Vec::new();
     let mut track_ids = Vec::new();
     let mut book_ids = Vec::new();
+    let mut playlist_ids = Vec::new();
 
     for url in &config.urls {
         if let Some(url) = url.strip_prefix(client::ZVUK_RELEASE_PREFIX) {
             release_ids.push(url.to_owned());
         } else if let Some(url) = url.strip_prefix(client::ZVUK_ABOOK_PREFIX) {
             book_ids.push(url.to_owned());
+        } else if let Some(url) =
+            url.strip_prefix(client::ZVUK_PLAYLIST_PREFIX)
+        {
+            playlist_ids.push(url.to_owned());
         } else if let Some(url) = url.strip_prefix(client::ZVUK_TRACKS_PREFIX)
         {
             track_ids.push(url.to_owned());
@@ -48,6 +53,9 @@ pub fn download(config: &Config) -> anyhow::Result<()> {
     }
     if !book_ids.is_empty() {
         client.download_abooks(&book_ids)?;
+    }
+    if !playlist_ids.is_empty() {
+        client.download_playlists(&playlist_ids)?;
     }
 
     Ok(())

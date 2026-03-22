@@ -1,6 +1,6 @@
 # zvuk-dl ![Build and Test](https://github.com/skarrok/zvuk-dl-rs/actions/workflows/build_and_test.yml/badge.svg) [![Coverage Status](https://coveralls.io/repos/github/skarrok/zvuk-dl-rs/badge.svg?branch=main)](https://coveralls.io/github/skarrok/zvuk-dl-rs?branch=main) ![Release](https://github.com/skarrok/zvuk-dl-rs/actions/workflows/release.yml/badge.svg)
 
-Download albums and tracks in high quality (FLAC or MP3) from [zvuk.com](https://zvuk.com)
+Download albums, tracks, audiobooks and playlists in high quality (FLAC or MP3) from [zvuk.com](https://zvuk.com)
 
 > [!IMPORTANT]
 > You must have zvuk.com account and paid subscription to use this tool.
@@ -63,9 +63,12 @@ Usage: zvuk-dl [OPTIONS] --token <TOKEN> <URLS>...
 
 Arguments:
   <URLS>...
-          URLs of releases or tracks
+          URLs of releases, tracks, audiobooks or playlists
 
-          URLs must look like https://zvuk.com/track/128672726 or https://zvuk.com/release/29970563
+          URLs must look like https://zvuk.com/track/128672726
+          or https://zvuk.com/release/29970563
+          or https://zvuk.com/abook/32124448
+          or https://zvuk.com/playlist/8081036
 
 Options:
       --token <TOKEN>

@@ -22,7 +22,10 @@ use serde::Deserialize;
 use super::Quality;
 use super::entities::{BookChapter, Lyrics, ReleaseInfo, TrackInfo};
 use super::gql;
-use crate::config::Config;
+use crate::{
+    config::Config,
+    zvuk::entities::{CoverKey, Covers},
+};
 
 pub const ZVUK_HOST: &str = "https://zvuk.com";
 pub const ZVUK_RELEASES_ENDPOINT: &str = "/api/tiny/releases";
@@ -34,11 +37,17 @@ pub const ZVUK_GRAPHQL_ENDPOINT: &str = "/api/v1/graphql";
 pub(super) const ZVUK_RELEASE_PREFIX: &str = "https://zvuk.com/release/";
 pub(super) const ZVUK_TRACKS_PREFIX: &str = "https://zvuk.com/track/";
 pub(super) const ZVUK_ABOOK_PREFIX: &str = "https://zvuk.com/abook/";
+pub(super) const ZVUK_PLAYLIST_PREFIX: &str = "https://zvuk.com/playlist/";
 
 pub const ZVUK_DEFAULT_COVER_RESIZE_COMMAND: &str =
     "magick {source} -define jpeg:extent=1MB {target}";
 
 pub const ZVUK_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+pub(super) enum DownloadAs {
+    Album,
+    Playlist,
+}
 
 pub(super) struct Client {
     embed_cover: bool,
@@ -169,22 +178,41 @@ impl Client {
             .get_tracks_metadata(track_ids)
             .context("Failed to get tracks metadata")?;
 
-        let releases_ = if releases.is_empty() {
-            let mut release_ids = HashSet::new();
-            for track_info in metadata.values() {
-                release_ids.insert(track_info.release_id.clone());
-            }
-            let release_ids = release_ids.into_iter().collect::<Vec<_>>();
-            &self
-                .get_releases_info(&release_ids)
-                .context("Failed to get releases metadata")?
-        } else {
-            releases
-        };
+        self.download_tracks_with_metadata(
+            &metadata,
+            releases,
+            &DownloadAs::Album,
+        )?;
 
-        let cover_paths = self
-            .prepare_release_covers(&metadata, releases_)
-            .context("Failed to prepare release covers")?;
+        Ok(())
+    }
+
+    pub fn download_tracks_with_metadata(
+        &self,
+        metadata: &HashMap<String, TrackInfo>,
+        releases: &HashMap<String, ReleaseInfo>,
+        download_as: &DownloadAs,
+    ) -> anyhow::Result<()> {
+        let mut releases_ = releases.clone();
+
+        let mut missing_release_ids = HashSet::new();
+        for track_info in metadata.values() {
+            if !releases.contains_key(&track_info.release_id) {
+                missing_release_ids.insert(track_info.release_id.clone());
+            }
+        }
+        let missing_release_ids =
+            missing_release_ids.into_iter().collect::<Vec<_>>();
+        if !missing_release_ids.is_empty() {
+            releases_.extend(
+                self.get_releases_info(&missing_release_ids)
+                    .context("Failed to get releases metadata")?,
+            );
+        }
+
+        let covers = self
+            .prepare_covers(metadata, &releases_, download_as)
+            .context("Failed to prepare covers")?;
 
         let download_track_ids = metadata.keys().cloned().collect::<Vec<_>>();
         let workers = self.parallel.clamp(1, download_track_ids.len().max(1));
@@ -198,7 +226,8 @@ impl Client {
         let receiver = Arc::new(Mutex::new(receiver));
 
         let metadata = &metadata;
-        let cover_paths = &cover_paths;
+        let covers = &covers;
+        let releases_ = &releases_;
 
         thread::scope(|scope| {
             for _ in 0..workers {
@@ -230,7 +259,8 @@ impl Client {
                             track_id.as_str(),
                             metadata,
                             releases_,
-                            cover_paths,
+                            covers,
+                            download_as,
                         );
                     }
                 });
@@ -248,18 +278,16 @@ impl Client {
         Ok(())
     }
 
-    fn prepare_release_covers(
+    fn prepare_covers(
         &self,
         metadata: &HashMap<String, TrackInfo>,
         releases: &HashMap<String, ReleaseInfo>,
-    ) -> anyhow::Result<HashMap<String, PathBuf>> {
-        let mut cover_paths = HashMap::new();
+        download_as: &DownloadAs,
+    ) -> anyhow::Result<Covers> {
+        let mut track_covers = HashMap::new();
+        let mut release_covers: HashMap<String, PathBuf> = HashMap::new();
 
         for track_info in metadata.values() {
-            if cover_paths.contains_key(&track_info.release_id) {
-                continue;
-            }
-
             let release_info =
                 releases.get(&track_info.release_id).with_context(|| {
                     format!(
@@ -268,13 +296,18 @@ impl Client {
                     )
                 })?;
 
-            let directory_name = sanitize_path(&format!(
-                "{} - {} ({})",
-                release_info.author,
-                release_info.album,
-                release_info.date.chars().take(4).collect::<String>()
-            ));
-            let directory_path = self.output_dir.join(directory_name);
+            let actual_quality = self.determine_effective_quality(track_info);
+            let TrackPath {
+                dir: directory_path,
+                cover_path,
+                ..
+            } = track_target_paths(
+                track_info,
+                release_info,
+                &self.output_dir,
+                actual_quality,
+                download_as,
+            );
 
             std::fs::create_dir_all(&directory_path).with_context(|| {
                 format!(
@@ -283,20 +316,39 @@ impl Client {
                 )
             })?;
 
-            let cover_path = directory_path.join("cover.jpg");
-            self.download_cover(&track_info.image, &cover_path).with_context(
-                || {
-                    format!(
-                        "Failed to download and process album cover for release {}",
-                        track_info.release_id
-                    )
-                },
-            )?;
+            if let Some(release_cover) =
+                release_covers.get(&track_info.release_id)
+            {
+                if matches!(download_as, DownloadAs::Playlist)
+                    && !cover_path.try_exists()?
+                {
+                    std::fs::copy(release_cover, &cover_path).with_context(
+                        || {
+                            format!(
+                                "Failed to copy cover from {} to {}",
+                                release_cover.display(),
+                                cover_path.display()
+                            )
+                        },
+                    )?;
+                }
+            } else {
+                self.download_cover(&track_info.image, &cover_path).with_context(
+                    || {
+                        format!(
+                            "Failed to download and process cover for release {}",
+                            track_info.release_id
+                        )
+                    },
+                )?;
+                release_covers
+                    .insert(track_info.release_id.clone(), cover_path.clone());
+            }
 
-            cover_paths.insert(track_info.release_id.clone(), cover_path);
+            track_covers.insert(track_info.track_id.clone(), cover_path);
         }
 
-        Ok(cover_paths)
+        Ok(Covers::new(&release_covers, &track_covers))
     }
 
     fn download_track_by_id(
@@ -304,13 +356,15 @@ impl Client {
         track_id: &str,
         metadata: &HashMap<String, TrackInfo>,
         releases: &HashMap<String, ReleaseInfo>,
-        cover_paths: &HashMap<String, PathBuf>,
+        covers: &Covers,
+        download_as: &DownloadAs,
     ) {
         if let Err(e) = self.try_download_track_by_id(
             track_id,
             metadata,
             releases,
-            cover_paths,
+            covers,
+            download_as,
         ) {
             tracing::warn!(
                 "Failed to download and process track id={track_id}: {e:#}"
@@ -323,34 +377,35 @@ impl Client {
         track_id: &str,
         metadata: &HashMap<String, TrackInfo>,
         releases: &HashMap<String, ReleaseInfo>,
-        cover_paths: &HashMap<String, PathBuf>,
+        covers: &Covers,
+        download_as: &DownloadAs,
     ) -> anyhow::Result<()> {
         let track_info = metadata.get(track_id).with_context(|| {
             format!("Missing metadata for track id={track_id}")
         })?;
 
         let actual_quality = self.determine_effective_quality(track_info);
-
-        let link = self
-            .fetch_track_link(track_id, actual_quality)
-            .with_context(|| {
-                format!("Failed to get download link for track id={track_id}")
-            })?;
         let release_info =
             releases.get(&track_info.release_id).with_context(|| {
                 format!("Missing release info for track id={track_id}")
             })?;
-        let cover_path =
-            cover_paths.get(&track_info.release_id).with_context(|| {
+
+        let cover_path = covers
+            .get(&match download_as {
+                DownloadAs::Album => CoverKey::Album(&track_info.release_id),
+                DownloadAs::Playlist => CoverKey::Track(track_id),
+            })
+            .with_context(|| {
                 format!("Missing cover path for track id={track_id}")
             })?;
 
         self.get_and_save_track(
-            &link,
+            track_id,
             track_info,
             release_info,
-            cover_path,
+            &cover_path,
             actual_quality,
+            download_as,
         )
     }
 
@@ -503,32 +558,28 @@ impl Client {
 
     fn get_and_save_track(
         &self,
-        url: &str,
+        track_id: &str,
         track_info: &TrackInfo,
         release_info: &ReleaseInfo,
         cover_path: &Path,
         actual_quality: Quality,
+        download_as: &DownloadAs,
     ) -> anyhow::Result<()> {
-        let directory_name = sanitize_path(&format!(
-            "{} - {} ({})",
-            release_info.author,
-            release_info.album,
-            release_info.date.chars().take(4).collect::<String>()
-        ));
-        let directory_path = self.output_dir.join(directory_name);
+        let TrackPath {
+            dir: directory_path,
+            path: filepath,
+            ..
+        } = track_target_paths(
+            track_info,
+            release_info,
+            &self.output_dir,
+            actual_quality,
+            download_as,
+        );
 
         std::fs::create_dir_all(&directory_path).with_context(|| {
             format!("Failed to create directory {}", directory_path.display())
         })?;
-
-        let filename = sanitize_path(&format!(
-            "{:02} - {}.{}",
-            track_info.number,
-            track_info.name,
-            actual_quality.extension()
-        ));
-        let filename = PathBuf::from(filename);
-        let filepath = directory_path.join(filename);
 
         if filepath.exists() {
             tracing::info!(
@@ -538,6 +589,12 @@ impl Client {
             return Ok(());
         }
 
+        let link = self
+            .fetch_track_link(track_id, actual_quality)
+            .with_context(|| {
+                format!("Failed to get download link for track id={track_id}")
+            })?;
+
         tracing::info!(
             "Downloading {} {}",
             actual_quality,
@@ -546,7 +603,7 @@ impl Client {
 
         let response = self
             .http
-            .get(url)
+            .get(link)
             .send()
             .context("Failed to download track")?
             .error_for_status()?;
@@ -596,14 +653,26 @@ impl Client {
 
         tags.set_artist(&track_info.author);
         tags.set_title(&track_info.name);
-        tags.set_album_title(&release_info.album);
         tags.set_track_number(track_info.number.try_into()?);
-        tags.set_total_tracks(release_info.track_count.try_into()?);
         tags.set_genre(&track_info.genre);
 
-        if let Ok(date) =
-            NaiveDate::parse_from_str(&release_info.date, "%Y%m%d")
-        {
+        tags.set_album_title(&release_info.album);
+        if release_info.track_count > 0 {
+            tags.set_total_tracks(release_info.track_count.try_into()?);
+        }
+
+        let date = ["%Y%m%d", "%Y-%m-%d"]
+            .iter()
+            .map(|format| {
+                NaiveDate::parse_and_remainder(&release_info.date, format)
+                    .map(|r| r.0)
+                    .inspect_err(|e| {
+                        tracing::trace!("Couldn't parse date={format}: {e}");
+                    })
+            })
+            .find(Result::is_ok);
+
+        if let Some(Ok(date)) = date {
             tags.set_date(id3::Timestamp {
                 year: date.year(),
                 month: u8::try_from(date.month()).ok(),
@@ -951,6 +1020,7 @@ impl Client {
             "query": gql::ZVUK_GQL_GET_STREAM,
             "variables": {
                 "includeFlacDrm": false,
+                "useHLSv2": false,
                 "ids": chapter_ids
             },
             "operationName": "getStream"
@@ -986,6 +1056,138 @@ impl Client {
 
         Ok(links)
     }
+
+    pub(crate) fn download_playlists(
+        &self,
+        playlist_ids: &[String],
+    ) -> anyhow::Result<()> {
+        tracing::info!("Getting playlist tracks");
+
+        let mut tracks: HashMap<String, TrackInfo> = HashMap::new();
+        let mut releases: HashMap<String, ReleaseInfo> = HashMap::new();
+
+        for playlist_id in playlist_ids {
+            let mut offset = 0;
+            let limit = 30;
+
+            loop {
+                let request = serde_json::json!({
+                    "query": gql::ZVUK_GQL_GET_PLAYLIST_TRACKS,
+                    "variables": {
+                        "id": playlist_id,
+                        "offset": offset,
+                        "limit": limit
+                    },
+                    "operationName": "getPlaylistTracks",
+                });
+                let response = self
+                    .http
+                    .post(self.zvuk_graphql_url.clone())
+                    .json(&request)
+                    .send()
+                    .context("Failed to download playlist tracks")?
+                    .error_for_status()?;
+
+                let body = response
+                    .json::<serde_json::Value>()
+                    .context("Failed to parse playlist tracks")?;
+                tracing::trace!(
+                    "{0} response: {body:#?}",
+                    self.zvuk_graphql_url
+                );
+
+                let result =
+                    super::dto::ZvukGQLResponse::deserialize(body)?.data;
+                let Some(result) = result.playlist_tracks else {
+                    return Err(anyhow::anyhow!(
+                        "No playlist tracks in response"
+                    ));
+                };
+
+                let result_count = result.len();
+                for track in result {
+                    tracks.insert(track.id.clone(), track.clone().try_into()?);
+                    releases
+                        .insert(track.release.id.clone(), track.try_into()?);
+                }
+
+                if result_count < limit {
+                    break;
+                }
+                offset += limit;
+            }
+        }
+
+        self.download_tracks_with_metadata(
+            &tracks,
+            &releases,
+            &DownloadAs::Playlist,
+        )?;
+
+        Ok(())
+    }
+}
+
+struct TrackPath {
+    dir: PathBuf,
+    path: PathBuf,
+    cover_path: PathBuf,
+}
+
+fn track_target_dir(
+    release_info: &ReleaseInfo,
+    output_dir: &Path,
+    download_as: &DownloadAs,
+) -> PathBuf {
+    match download_as {
+        DownloadAs::Album => output_dir.join(sanitize_path(&format!(
+            "{} - {} ({})",
+            release_info.author,
+            release_info.album,
+            release_info.date.chars().take(4).collect::<String>()
+        ))),
+        DownloadAs::Playlist => output_dir.to_path_buf(),
+    }
+}
+
+fn track_target_paths(
+    track_info: &TrackInfo,
+    release_info: &ReleaseInfo,
+    output_dir: &Path,
+    quality: Quality,
+    download_as: &DownloadAs,
+) -> TrackPath {
+    let directory_path =
+        track_target_dir(release_info, output_dir, download_as);
+
+    let filename = match download_as {
+        DownloadAs::Album => sanitize_path(&format!(
+            "{:02} - {}.{}",
+            track_info.number,
+            track_info.name,
+            quality.extension()
+        )),
+        DownloadAs::Playlist => sanitize_path(&format!(
+            "{} - {} - {}.{}",
+            track_info.author,
+            track_info.album,
+            track_info.name,
+            quality.extension()
+        )),
+    };
+    let filename = PathBuf::from(filename);
+    let filepath = directory_path.join(filename);
+
+    let cover_path = match download_as {
+        DownloadAs::Album => directory_path.join("cover.jpg"),
+        DownloadAs::Playlist => filepath.with_extension("jpg"),
+    };
+
+    TrackPath {
+        dir: directory_path,
+        path: filepath,
+        cover_path,
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -1008,9 +1210,11 @@ mod tests {
     use super::*;
 
     const MOCK_TRACK_ID: &str = "1";
+    const MOCK_TRACK_ID_2: &str = "2";
     const MOCK_RELEASE_ID: &str = "99";
     const MOCK_BOOK_ID: &str = "00";
     const MOCK_CHAPTER_ID: &str = "88";
+    const MOCK_PLAYLIST_ID: &str = "77";
     const MOCK_LYRICS: &str = "mocked lyrics";
     const MOCK_AUDIO_URL: &str = "/file.flac";
     const MOCK_COVER_URL: &str = "/file.jpg";
@@ -1193,7 +1397,7 @@ mod tests {
             when.method(GET)
                 .path(path)
                 .query_param("quality", "flac")
-                .query_param("id", MOCK_TRACK_ID);
+                .query_param_exists("id");
             then.status(200).json_body(json!({
                 "result": {
                     "expire": 0,
@@ -1212,7 +1416,7 @@ mod tests {
             when.method(GET)
                 .path(path)
                 .query_param("quality", "flac")
-                .query_param("id", MOCK_TRACK_ID);
+                .query_param_exists("id");
             then.status(500).json_body(json!({
                 "error": "boom"
             }));
@@ -1271,7 +1475,7 @@ mod tests {
                 {
                     "operationName": "getStream"
                 }
-            "#,
+                "#,
             );
             then.status(200).json_body(json!({"data": {
                 "media_contents": [
@@ -1282,6 +1486,118 @@ mod tests {
                             "mid": server.url(MOCK_AUDIO_URL),
                             "type": "flac",
                         },
+                    }
+                ]
+            }}));
+        })
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn playlist_tracks_mock<'s>(
+        server: &'s MockServer,
+        path: &str,
+    ) -> httpmock::Mock<'s> {
+        server.mock(|when, then| {
+            when.method(POST).path(path).json_body_includes(
+                r#"
+                {
+                    "operationName": "getPlaylistTracks"
+                }
+                "#,
+            );
+            then.status(200).json_body(json!({"data": {
+                "playlistTracks": [
+                    {
+                        "id": MOCK_TRACK_ID,
+                        "title": "Some track title",
+                        "position": 1,
+                        "lyrics": true,
+                        "hasFlac": true,
+                        "duration": 30,
+                        "explicit": false,
+                        "availability": 2,
+                        "artistTemplate": "{0}",
+                        "childParam": null,
+                        "mark": null,
+                        "artists": [
+                            {
+                                "id": "1",
+                                "title": "Some artist",
+                                "image": {
+                                    "src": server.url(MOCK_COVER_URL),
+                                    "palette": ""
+                                },
+                                "mark": null
+                            }
+                        ],
+                        "release": {
+                            "id": MOCK_RELEASE_ID,
+                            "title": "Some release title",
+                            "date": "20031231",
+                            "image": {
+                                "src": server.url(MOCK_COVER_URL),
+                                "palette": ""
+                            },
+                            "genres": [
+                                {
+                                    "id": "1",
+                                    "name": "Pop",
+                                    "shortName": ""
+                                }
+                            ],
+                            "label": {
+                                "id": "1",
+                                "title": "Some label title"
+                            }
+                        },
+                        "zchan": "huh",
+                        "__typename": "Track"
+                    },
+                    {
+                        "id": MOCK_TRACK_ID_2,
+                        "title": "Some second track title",
+                        "position": 2,
+                        "lyrics": true,
+                        "hasFlac": true,
+                        "duration": 30,
+                        "explicit": false,
+                        "availability": 2,
+                        "artistTemplate": "{0}",
+                        "childParam": null,
+                        "mark": null,
+                        "artists": [
+                            {
+                                "id": "1",
+                                "title": "Some artist",
+                                "image": {
+                                    "src": server.url(MOCK_COVER_URL),
+                                    "palette": ""
+                                },
+                                "mark": null
+                            }
+                        ],
+                        "release": {
+                            "id": MOCK_RELEASE_ID,
+                            "title": "Some release title",
+                            "date": "20031231",
+                            "image": {
+                                "src": server.url(MOCK_COVER_URL),
+                                "palette": ""
+                            },
+                            "genres": [
+                                {
+                                    "id": "1",
+                                    "name": "Pop",
+                                    "shortName": ""
+                                }
+                            ],
+                            "label": {
+                                "id": "1",
+                                "title": "Some label title"
+                            }
+                        },
+                        "zchan": "huh",
+                        "__typename": "Track"
                     }
                 ]
             }}));
@@ -1517,6 +1833,9 @@ mod tests {
         let c = Client::build(&config)?;
         c.download_albums(&[MOCK_RELEASE_ID.to_string()])?;
 
+        // assert
+        assert_eq!(tmp_dir.path().read_dir()?.count(), 1);
+
         Ok(())
     }
 
@@ -1545,6 +1864,76 @@ mod tests {
         let c = Client::build(&config)?;
         c.download_abooks(&[MOCK_BOOK_ID.to_string()])?;
 
+        // assert
+        assert_eq!(tmp_dir.path().read_dir()?.count(), 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn download_playlists() -> Result<(), Box<dyn std::error::Error>> {
+        // setup
+        let tmp_dir = tempfile::tempdir()?;
+        let mut config = Config::try_parse_from(vec![
+            "zvul-dl",
+            "--token=1",
+            "https://zvuk.com/track/1",
+        ])?;
+        let server = MockServer::start();
+        playlist_tracks_mock(&server, &config.zvuk_graphql_endpoint);
+        tracks_mock(&server, &config.zvuk_graphql_endpoint);
+        lyricks_mock(&server, &config.zvuk_lyrics_endpoint);
+        download_link_mock(&server, &config.zvuk_download_endpoint);
+        audio_mock(&server);
+        let cover_mocked = cover_mock(&server);
+        config.zvuk_host = server.base_url();
+        config.output_dir = tmp_dir
+            .path()
+            .to_str()
+            .context("filepath is not valid string")?
+            .to_string();
+
+        // execute
+        let c = Client::build(&config)?;
+        c.download_playlists(&[MOCK_PLAYLIST_ID.to_string()])?;
+
+        // assert
+        let mut files = tmp_dir
+            .path()
+            .read_dir()?
+            .map(|entry| {
+                entry
+                    .map(|entry| entry.path())
+                    .map_err(Box::<dyn std::error::Error>::from)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        files.sort();
+
+        assert_eq!(files.len(), 4);
+        assert!(files.iter().any(|path| {
+            path.file_name().is_some_and(|filename| {
+                filename == "Some artist - Some release title - Some track title.flac"
+            })
+        }));
+        assert!(files.iter().any(|path| {
+            path.file_name().is_some_and(|filename| {
+                filename == "Some artist - Some release title - Some track title.jpg"
+            })
+        }));
+        assert!(files.iter().any(|path| {
+            path.file_name().is_some_and(|filename| {
+                filename
+                    == "Some artist - Some release title - Some second track title.flac"
+            })
+        }));
+        assert!(files.iter().any(|path| {
+            path.file_name().is_some_and(|filename| {
+                filename
+                    == "Some artist - Some release title - Some second track title.jpg"
+            })
+        }));
+        cover_mocked.assert_calls(1);
+
         Ok(())
     }
 
@@ -1558,6 +1947,7 @@ mod tests {
             &format!("https://zvuk.com/track/{MOCK_TRACK_ID}"),
             &format!("https://zvuk.com/release/{MOCK_RELEASE_ID}"),
             &format!("https://zvuk.com/abook/{MOCK_BOOK_ID}"),
+            &format!("https://zvuk.com/playlist/{MOCK_PLAYLIST_ID}"),
         ])?;
         let server = MockServer::start();
         release_mock(&server, &config.zvuk_releases_endpoint);
@@ -1566,6 +1956,7 @@ mod tests {
         download_link_mock(&server, &config.zvuk_download_endpoint);
         books_mock(&server, &config.zvuk_graphql_endpoint);
         chapter_link_mock(&server, &config.zvuk_graphql_endpoint);
+        playlist_tracks_mock(&server, &config.zvuk_graphql_endpoint);
         audio_mock(&server);
         cover_mock(&server);
         config.zvuk_host = server.base_url();

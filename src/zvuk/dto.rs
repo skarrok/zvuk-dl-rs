@@ -109,6 +109,8 @@ pub(super) struct ZvukGQLData {
     pub(super) media_contents: Option<Vec<ZvukGQLMediaContent>>,
     #[serde(alias = "getTracks")]
     pub(super) get_tracks: Option<Vec<ZvukGQLTrack>>,
+    #[serde(alias = "playlistTracks")]
+    pub(super) playlist_tracks: Option<Vec<ZvukGQLPlaylistTrack>>,
 }
 
 #[expect(unused)]
@@ -134,7 +136,7 @@ pub(super) struct ZvukGQLChapter {
     __typename: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub(super) struct ZvukGQLImage {
     pub(super) src: String,
 }
@@ -155,17 +157,30 @@ pub(super) struct ZvukBookAuthor {
     image: ZvukGQLImage,
 }
 
+#[expect(unused)]
 #[derive(Deserialize)]
 pub(super) struct ZvukGQLMediaContent {
     __typename: String,
     pub(super) stream: ZvukGQLStream,
+    #[serde(alias = "streamV3")]
+    pub(super) stream_v3: Option<ZvukGQLStreamV3>,
 }
 
 #[expect(unused)]
 #[derive(Deserialize)]
 pub(super) struct ZvukGQLStream {
     expire: String,
+    pub(super) flacdrm: Option<String>,
+    pub(super) high: Option<String>,
     pub(super) mid: String,
+    pub(super) preview: Option<String>,
+}
+
+#[expect(unused)]
+#[derive(Deserialize)]
+pub(super) struct ZvukGQLStreamV3 {
+    expire: String,
+    hls: String,
 }
 
 #[expect(unused)]
@@ -193,24 +208,24 @@ pub(super) struct ZvukGQLTrack {
 }
 
 #[expect(unused)]
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub(super) struct ZvukGQLArtist {
     pub(super) id: String,
     pub(super) title: String,
     #[serde(alias = "searchTitle")]
-    search_title: String,
+    search_title: Option<String>,
     description: Option<String>,
     #[serde(alias = "hasPage")]
-    has_page: bool,
+    has_page: Option<bool>,
     #[serde(alias = "collectionItemData")]
-    collection_item_data: ZvukGQLCollectionItemData,
+    collection_item_data: Option<ZvukGQLCollectionItemData>,
     pub(super) image: ZvukGQLImage,
     #[serde(alias = "secondImage")]
-    second_image: ZvukGQLImage,
+    second_image: Option<ZvukGQLImage>,
 }
 
 #[expect(unused)]
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub(super) struct ZvukGQLGenre {
     pub(super) id: String,
     pub(super) name: String,
@@ -220,33 +235,55 @@ pub(super) struct ZvukGQLGenre {
 }
 
 #[expect(unused)]
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub(super) struct ZvukGQLRelease {
     pub(super) id: String,
     pub(super) title: String,
     #[serde(alias = "searchTitle")]
-    search_title: String,
-    r#type: String,
-    date: String,
+    search_title: Option<String>,
+    r#type: Option<String>,
+    pub(super) date: Option<String>,
     pub(super) image: ZvukGQLImage,
-    pub(super) genres: Vec<ZvukGQLGenre>,
-    label: ZvukGQLLabel,
-    availability: i64,
+    pub(super) genres: Option<Vec<ZvukGQLGenre>>,
+    pub(super) label: Option<ZvukGQLLabel>,
+    availability: Option<i64>,
     #[serde(alias = "artistTemplate")]
-    artist_template: String,
+    artist_template: Option<String>,
     mark: Option<String>,
 }
 
 #[expect(unused)]
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub(super) struct ZvukGQLCollectionItemData {
     #[serde(alias = "likesCount")]
     likes_count: i64,
 }
 
 #[expect(unused)]
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub(super) struct ZvukGQLLabel {
     id: String,
-    title: String,
+    pub(super) title: String,
+}
+
+#[expect(unused)]
+#[derive(Deserialize, Clone)]
+pub(super) struct ZvukGQLPlaylistTrack {
+    pub(super) id: String,
+    pub(super) title: String,
+    pub(super) position: i64,
+    pub(super) lyrics: Option<bool>,
+    #[serde(alias = "hasFlac")]
+    pub(super) has_flac: Option<bool>,
+    duration: i64,
+    explicit: Option<bool>,
+    availability: i64,
+    #[serde(alias = "artistTemplate")]
+    artist_template: String,
+    child_param: Option<String>,
+    mark: Option<String>,
+    pub(super) artists: Vec<ZvukGQLArtist>,
+    pub(super) release: ZvukGQLRelease,
+    zchan: String,
+    __typename: String,
 }

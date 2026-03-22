@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Download tracks and audiobook chapters concurrently with configurable
   worker count via `--parallel` option. Default is set to 1.
 
+- ✨ Download playlist tracks ([#8](https://github.com/skarrok/zvuk-dl-rs/issues/8))
+
+  URLs like https://zvuk.com/playlist/8081036 now work!
+  Tracks from playlists are saved without album subdirectories and covers saved next to each track.
+
 ## [0.4.3] - 2026-03-07
 
 ### Fixed

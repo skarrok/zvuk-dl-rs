@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display, path::PathBuf};
 
 use clap::ValueEnum;
 use serde::Serialize;
@@ -44,7 +44,7 @@ pub(super) struct Lyrics {
     pub(super) text: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct ReleaseInfo {
     pub(super) track_ids: Vec<String>,
     pub(super) track_count: u32,
@@ -54,7 +54,6 @@ pub(super) struct ReleaseInfo {
     pub(super) author: String,
 }
 
-#[expect(unused)]
 #[derive(Debug)]
 pub(super) struct TrackInfo {
     pub(super) author: String,
@@ -177,5 +176,92 @@ impl TryFrom<super::dto::ZvukGQLChapter> for BookChapter {
             image: value.image.src,
             number: value.position.try_into()?,
         })
+    }
+}
+
+impl TryFrom<super::dto::ZvukGQLPlaylistTrack> for TrackInfo {
+    type Error = anyhow::Error;
+
+    fn try_from(
+        value: super::dto::ZvukGQLPlaylistTrack,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self {
+            author: value
+                .artists
+                .iter()
+                .map(|x| x.title.clone())
+                .collect::<Vec<_>>()
+                .join(", "),
+            name: value.title,
+            album: value.release.title,
+            release_id: value.release.id,
+            track_id: value.id,
+            genre: value
+                .release
+                .genres
+                .map(|genres| {
+                    genres
+                        .iter()
+                        .map(|x| x.name.clone())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default(),
+            number: value.position.try_into()?,
+            image: value.release.image.src,
+            lyrics: value.lyrics.unwrap_or(false),
+            has_flac: value.has_flac.unwrap_or(false),
+        })
+    }
+}
+
+impl TryFrom<super::dto::ZvukGQLPlaylistTrack> for ReleaseInfo {
+    type Error = anyhow::Error;
+
+    fn try_from(
+        value: super::dto::ZvukGQLPlaylistTrack,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self {
+            track_ids: Vec::new(),
+            track_count: 0,
+            label: value.release.label.map(|x| x.title).unwrap_or_default(),
+            date: value.release.date.unwrap_or_default(),
+            album: value.release.title,
+            author: value
+                .artists
+                .iter()
+                .map(|x| x.title.clone())
+                .collect::<Vec<_>>()
+                .join(", "),
+        })
+    }
+}
+
+pub(super) enum CoverKey<'a> {
+    Album(&'a str),
+    Track(&'a str),
+}
+
+pub(super) struct Covers {
+    release_covers: HashMap<String, PathBuf>,
+    track_covers: HashMap<String, PathBuf>,
+}
+
+impl Covers {
+    pub fn new(
+        release_covers: &HashMap<String, PathBuf>,
+        track_covers: &HashMap<String, PathBuf>,
+    ) -> Self {
+        Self {
+            release_covers: release_covers.clone(),
+            track_covers: track_covers.clone(),
+        }
+    }
+
+    pub fn get(&self, key: &CoverKey) -> Option<PathBuf> {
+        match *key {
+            CoverKey::Album(id) => self.release_covers.get(id).cloned(),
+            CoverKey::Track(id) => self.track_covers.get(id).cloned(),
+        }
     }
 }
