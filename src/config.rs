@@ -231,13 +231,12 @@ where
     T: Serialize,
 {
     fn log(&self) {
-        if let Ok(json_obj) = to_value(self) {
-            if let Ok(json_obj) =
+        if let Ok(json_obj) = to_value(self)
+            && let Ok(json_obj) =
                 json_obj.as_object().ok_or_else(|| anyhow!("WTF"))
-            {
-                for (key, value) in json_obj {
-                    tracing::debug!("Config {}={}", key, value);
-                }
+        {
+            for (key, value) in json_obj {
+                tracing::debug!("Config {}={}", key, value);
             }
         }
     }
@@ -256,9 +255,9 @@ fn resize_command_validator(value: &str) -> anyhow::Result<String> {
 mod tests {
     use clap::Parser;
 
-    use super::resize_command_validator;
     use super::Config;
     use super::LogStruct;
+    use super::resize_command_validator;
 
     #[test]
     fn validate_resize_command() {

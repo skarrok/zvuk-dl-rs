@@ -1,7 +1,7 @@
 [package]
 name = "zvuk-dl"
 version = "0.4.3"
-edition = "2021"
+edition = "2024"
 repository = "https://github.com/skarrok/zvuk-dl-rs"
 license = "MIT"
 

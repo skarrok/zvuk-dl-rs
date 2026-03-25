@@ -1,27 +1,27 @@
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::{mpsc, Arc, Mutex},
+    sync::{Arc, Mutex, mpsc},
     thread,
     time::Duration,
 };
 
 use anyhow::Context;
 use audiotags::{
-    traits::AudioTagWrite, AudioTag, FlacTag, Id3v2Tag, MimeType, Picture,
+    AudioTag, FlacTag, Id3v2Tag, MimeType, Picture, traits::AudioTagWrite,
 };
 use chrono::{Datelike, NaiveDate};
-use id3::{frame, TagLike};
+use id3::{TagLike, frame};
 use reqwest::{
+    Url,
     cookie::Jar,
     header::{HeaderMap, USER_AGENT},
-    Url,
 };
 use serde::Deserialize;
 
+use super::Quality;
 use super::entities::{BookChapter, Lyrics, ReleaseInfo, TrackInfo};
 use super::gql;
-use super::Quality;
 use crate::config::Config;
 
 pub const ZVUK_HOST: &str = "https://zvuk.com";
@@ -203,32 +203,36 @@ impl Client {
         thread::scope(|scope| {
             for _ in 0..workers {
                 let receiver = Arc::clone(&receiver);
-                scope.spawn(move || loop {
-                    let track_id = {
-                        let Ok(receiver) = receiver.lock() else {
-                            tracing::warn!(
-                                "Failed to lock track queue receiver"
-                            );
+                scope.spawn(move || {
+                    loop {
+                        let track_id = {
+                            let Ok(receiver) = receiver.lock() else {
+                                tracing::warn!(
+                                    "Failed to lock track queue receiver"
+                                );
+                                break;
+                            };
+
+                            receiver.recv()
+                        };
+
+                        let Ok(track_id) = track_id else {
                             break;
                         };
 
-                        receiver.recv()
-                    };
+                        if self.pause_between_track_downloads.as_secs_f64()
+                            > 0.0
+                        {
+                            thread::sleep(self.pause_between_track_downloads);
+                        }
 
-                    let Ok(track_id) = track_id else {
-                        break;
-                    };
-
-                    if self.pause_between_track_downloads.as_secs_f64() > 0.0 {
-                        thread::sleep(self.pause_between_track_downloads);
+                        self.download_track_by_id(
+                            track_id.as_str(),
+                            metadata,
+                            releases_,
+                            cover_paths,
+                        );
                     }
-
-                    self.download_track_by_id(
-                        track_id.as_str(),
-                        metadata,
-                        releases_,
-                        cover_paths,
-                    );
                 });
             }
 
@@ -670,10 +674,10 @@ impl Client {
         vorbis_tags.set("RELEASE_ID", vec![&track_info.release_id]);
         vorbis_tags.set("TRACK_ID", vec![&track_info.track_id]);
 
-        if let Some(lyrics) = lyrics {
-            if !lyrics.text.is_empty() {
-                vorbis_tags.set_lyrics(vec![&lyrics.text]);
-            }
+        if let Some(lyrics) = lyrics
+            && !lyrics.text.is_empty()
+        {
+            vorbis_tags.set_lyrics(vec![&lyrics.text]);
         }
 
         let mut tags: FlacTag = flactag.into();
@@ -695,14 +699,14 @@ impl Client {
 
         mp3tags.set_text("TCOP", &release_info.label);
 
-        if let Some(lyrics) = lyrics {
-            if !lyrics.text.is_empty() {
-                mp3tags.add_frame(frame::Lyrics {
-                    lang: String::new(),
-                    description: String::new(),
-                    text: lyrics.text.clone(),
-                });
-            }
+        if let Some(lyrics) = lyrics
+            && !lyrics.text.is_empty()
+        {
+            mp3tags.add_frame(frame::Lyrics {
+                lang: String::new(),
+                description: String::new(),
+                text: lyrics.text.clone(),
+            });
         }
 
         let mut tags: Id3v2Tag = mp3tags.into();
@@ -745,27 +749,29 @@ impl Client {
         thread::scope(|scope| {
             for _ in 0..workers {
                 let receiver = Arc::clone(&receiver);
-                scope.spawn(move || loop {
-                    let chapter_id = {
-                        let Ok(receiver) = receiver.lock() else {
-                            tracing::warn!(
-                                "Failed to lock chapter queue receiver"
-                            );
+                scope.spawn(move || {
+                    loop {
+                        let chapter_id = {
+                            let Ok(receiver) = receiver.lock() else {
+                                tracing::warn!(
+                                    "Failed to lock chapter queue receiver"
+                                );
+                                break;
+                            };
+
+                            receiver.recv()
+                        };
+
+                        let Ok(chapter_id) = chapter_id else {
                             break;
                         };
 
-                        receiver.recv()
-                    };
-
-                    let Ok(chapter_id) = chapter_id else {
-                        break;
-                    };
-
-                    self.download_chapter_by_id(
-                        chapter_id.as_str(),
-                        metadata,
-                        links,
-                    );
+                        self.download_chapter_by_id(
+                            chapter_id.as_str(),
+                            metadata,
+                            links,
+                        );
+                    }
                 });
             }
 
@@ -1394,8 +1400,8 @@ mod tests {
     }
 
     #[test]
-    fn download_tracks_continues_when_link_fails(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn download_tracks_continues_when_link_fails()
+    -> Result<(), Box<dyn std::error::Error>> {
         // setup
         let tmp_dir = tempfile::tempdir()?;
         let mut config = Config::try_parse_from(vec![
