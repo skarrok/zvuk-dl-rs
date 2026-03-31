@@ -4,6 +4,8 @@ use anyhow::anyhow;
 use clap::ArgAction;
 use clap::Parser;
 use clap::ValueEnum;
+use clap::builder::styling::AnsiColor;
+use clap::builder::styling::Effects;
 use serde::Serialize;
 use serde::Serializer;
 use serde_json::to_value;
@@ -15,9 +17,17 @@ use crate::zvuk::{
     ZVUK_RELEASES_ENDPOINT, ZVUK_TRACKS_ENDPOINT, ZVUK_USER_AGENT,
 };
 
+const fn styles() -> clap::builder::Styles {
+    clap::builder::Styles::styled()
+        .header(AnsiColor::BrightGreen.on_default().effects(Effects::BOLD))
+        .usage(AnsiColor::BrightGreen.on_default().effects(Effects::BOLD))
+        .literal(AnsiColor::BrightCyan.on_default().effects(Effects::BOLD))
+        .placeholder(AnsiColor::Cyan.on_default())
+}
+
 /// Download albums and tracks in high quality (FLAC) from Zvuk.com
 #[derive(Debug, Parser, Serialize)]
-#[command(author, version, about, long_about = None)]
+#[command(author, version, about, long_about = None, styles=styles())]
 pub struct Config {
     #[allow(clippy::doc_markdown)]
     /// URLs of releases or tracks
