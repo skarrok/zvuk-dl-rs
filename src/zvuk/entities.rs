@@ -151,6 +151,7 @@ impl TryFrom<super::dto::ZvukLyrics> for Lyrics {
 
 #[derive(Debug)]
 pub(super) struct BookChapter {
+    pub(super) id: String,
     pub(super) author: String,
     pub(super) book_title: String,
     pub(super) title: String,
@@ -165,6 +166,7 @@ impl TryFrom<super::dto::ZvukGQLChapter> for BookChapter {
         value: super::dto::ZvukGQLChapter,
     ) -> Result<Self, Self::Error> {
         Ok(Self {
+            id: value.id,
             author: value
                 .book_authors
                 .iter()

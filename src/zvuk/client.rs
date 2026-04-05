@@ -435,7 +435,11 @@ impl Client {
         let body = response
             .json::<serde_json::Value>()
             .context("Failed to parse tracks metadata")?;
-        tracing::trace!("{0} response: {body:#?}", self.zvuk_graphql_url);
+        tracing::trace!(
+            operation = "getFullTrack",
+            "{0} response: {body:#?}",
+            self.zvuk_graphql_url
+        );
 
         let result = super::dto::ZvukGQLResponse::deserialize(body)?.data;
         let Some(result) = result.get_tracks else {
@@ -583,6 +587,7 @@ impl Client {
 
         if filepath.exists() {
             tracing::info!(
+                track_id,
                 "File already exists, skipping: {}",
                 filepath.display()
             );
@@ -919,13 +924,18 @@ impl Client {
 
         if filepath.exists() {
             tracing::info!(
+                chapter_id = chapter_info.id,
                 "File already exists, skipping: {}",
                 filepath.display()
             );
             return Ok(());
         }
 
-        tracing::info!("Downloading {}", filepath.display());
+        tracing::info!(
+            chapter_id = chapter_info.id,
+            "Downloading {}",
+            filepath.display()
+        );
 
         let response = self
             .http
@@ -992,7 +1002,11 @@ impl Client {
         let body = response
             .json::<serde_json::Value>()
             .context("Failed to parse books metadata")?;
-        tracing::trace!("{0} response: {body:#?}", self.zvuk_graphql_url);
+        tracing::trace!(
+            operation = "getBookChapters",
+            "{0} response: {body:#?}",
+            self.zvuk_graphql_url
+        );
 
         let result = super::dto::ZvukGQLResponse::deserialize(body)?.data;
         let Some(result) = result.get_books else {
@@ -1035,7 +1049,11 @@ impl Client {
         let body = response
             .json::<serde_json::Value>()
             .context("Failed to parse urls")?;
-        tracing::trace!("{0} response: {body:#?}", self.zvuk_graphql_url);
+        tracing::trace!(
+            operation = "getStream",
+            "{0} response: {body:#?}",
+            self.zvuk_graphql_url
+        );
 
         let result = super::dto::ZvukGQLResponse::deserialize(body)?.data;
         let Some(result) = result.media_contents else {
@@ -1061,12 +1079,12 @@ impl Client {
         &self,
         playlist_ids: &[String],
     ) -> anyhow::Result<()> {
-        tracing::info!("Getting playlist tracks");
-
         let mut tracks: HashMap<String, TrackInfo> = HashMap::new();
         let mut releases: HashMap<String, ReleaseInfo> = HashMap::new();
 
         for playlist_id in playlist_ids {
+            tracing::info!(playlist_id, "Getting playlist tracks");
+
             let mut offset = 0;
             let limit = 30;
 
@@ -1085,13 +1103,15 @@ impl Client {
                     .post(self.zvuk_graphql_url.clone())
                     .json(&request)
                     .send()
-                    .context("Failed to download playlist tracks")?
+                    .with_context(|| format!("Failed to get playlist tracks playlist_id={playlist_id}"))?
                     .error_for_status()?;
 
                 let body = response
                     .json::<serde_json::Value>()
-                    .context("Failed to parse playlist tracks")?;
+                    .with_context(|| format!("Failed to parse playlist tracks playlist_id={playlist_id}"))?;
+
                 tracing::trace!(
+                    operation = "getPlaylistTracks",
                     "{0} response: {body:#?}",
                     self.zvuk_graphql_url
                 );
@@ -1100,7 +1120,7 @@ impl Client {
                     super::dto::ZvukGQLResponse::deserialize(body)?.data;
                 let Some(result) = result.playlist_tracks else {
                     return Err(anyhow::anyhow!(
-                        "No playlist tracks in response"
+                        "No playlist tracks in response playlist_id={playlist_id}"
                     ));
                 };
 
@@ -1788,6 +1808,7 @@ mod tests {
         let metadata = HashMap::from_iter(vec![(
             MOCK_CHAPTER_ID.to_string(),
             BookChapter {
+                id: MOCK_CHAPTER_ID.to_string(),
                 author: "Some book author".to_string(),
                 book_title: "Some book title".to_string(),
                 title: "Some chapter title".to_string(),
