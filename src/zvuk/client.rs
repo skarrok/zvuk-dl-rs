@@ -42,7 +42,7 @@ pub(super) const ZVUK_PLAYLIST_PREFIX: &str = "https://zvuk.com/playlist/";
 pub const ZVUK_DEFAULT_COVER_RESIZE_COMMAND: &str =
     "magick {source} -define jpeg:extent=1MB {target}";
 
-pub const ZVUK_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+pub const ZVUK_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
 
 pub(super) enum DownloadAs {
     Album,
