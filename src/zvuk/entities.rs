@@ -8,8 +8,10 @@ use serde::Serialize;
 pub enum Quality {
     Flac,
     // 320 kbps
+    #[serde(rename(serialize = "mp3-high"))]
     MP3High,
     // 128 kbps
+    #[serde(rename(serialize = "mp3-mid"))]
     MP3Mid,
 }
 
