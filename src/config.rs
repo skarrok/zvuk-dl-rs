@@ -6,6 +6,7 @@ use clap::Parser;
 use clap::ValueEnum;
 use clap::builder::styling::AnsiColor;
 use clap::builder::styling::Effects;
+use secrecy::SecretString;
 use serde::Serialize;
 use serde::Serializer;
 use serde_json::to_value;
@@ -42,7 +43,7 @@ pub struct Config {
     /// Zvuk Token
     #[serde(serialize_with = "mask")]
     #[arg(long, env, hide_env_values = true)]
-    pub token: String,
+    pub token: SecretString,
 
     /// Output directory
     #[arg(long, short, env, default_value_t = String::from("."))]

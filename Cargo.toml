@@ -22,6 +22,7 @@ reqwest = { version = "0.13.2", default-features = false, features = [
         "query",
         "rustls",
 ] }
+secrecy = { version = "0.10.3" }
 serde_json = "1.0.149"
 serde = { version = "1.0.228", features = ["derive"] }
 supports-color = "3.0.2"

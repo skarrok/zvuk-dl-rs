@@ -17,6 +17,7 @@ use reqwest::{
     cookie::Jar,
     header::{HeaderMap, USER_AGENT},
 };
+use secrecy::ExposeSecret;
 use serde::Deserialize;
 
 use super::Quality;
@@ -91,7 +92,7 @@ impl Client {
 
         let jar = Jar::default();
         jar.add_cookie_str(
-            format!("auth={}", config.token).as_str(),
+            format!("auth={}", config.token.expose_secret()).as_str(),
             &zvuk_host,
         );
         let mut default_headers = HeaderMap::new();
