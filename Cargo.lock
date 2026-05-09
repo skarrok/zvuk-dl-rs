@@ -325,6 +325,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "const-fnv1a-hash"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32b13ea120a812beba79e34316b3942a857c86ec1593cb34f27bb28272ce2cca"
+
+[[package]]
 name = "cookie"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2872,6 +2878,7 @@ dependencies = [
  "audiotags",
  "chrono",
  "clap",
+ "const-fnv1a-hash",
  "dotenvy",
  "httpmock",
  "humantime",

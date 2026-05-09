@@ -23,6 +23,9 @@ use serde::Deserialize;
 use super::Quality;
 use super::entities::{BookChapter, Lyrics, ReleaseInfo, TrackInfo};
 use super::gql;
+
+use crate::path::normalize_path;
+use crate::path::sanitize_path;
 use crate::{
     config::Config,
     zvuk::entities::{CoverKey, Covers},
@@ -1161,12 +1164,15 @@ fn track_target_dir(
     download_as: &DownloadAs,
 ) -> PathBuf {
     match download_as {
-        DownloadAs::Album => output_dir.join(sanitize_path(&format!(
-            "{} - {} ({})",
-            release_info.author,
-            release_info.album,
-            release_info.date.chars().take(4).collect::<String>()
-        ))),
+        DownloadAs::Album => {
+            let directory_name = sanitize_path(&format!(
+                "{} - {} ({})",
+                release_info.author,
+                release_info.album,
+                release_info.date.chars().take(4).collect::<String>()
+            ));
+            output_dir.join(directory_name)
+        },
         DownloadAs::Playlist => output_dir.to_path_buf(),
     }
 }
@@ -1196,8 +1202,23 @@ fn track_target_paths(
             quality.extension()
         )),
     };
-    let filename = PathBuf::from(filename);
-    let filepath = directory_path.join(filename);
+
+    let filepath = directory_path.join(&filename);
+
+    let can_truncate_parent_folder = match download_as {
+        DownloadAs::Album => true,
+        DownloadAs::Playlist => false,
+    };
+
+    let filepath = normalize_path(
+        &filepath,
+        can_truncate_parent_folder,
+        &track_info.track_id,
+    );
+
+    let directory_path = filepath
+        .parent()
+        .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
 
     let cover_path = match download_as {
         DownloadAs::Album => directory_path.join("cover.jpg"),
@@ -1209,16 +1230,6 @@ fn track_target_paths(
         path: filepath,
         cover_path,
     }
-}
-
-#[cfg(target_os = "windows")]
-fn sanitize_path(path: &str) -> String {
-    path.replace(['<', '>', ':', '"', '/', '\\', '|', '?', '*'], "_")
-}
-
-#[cfg(not(target_os = "windows"))]
-fn sanitize_path(path: &str) -> String {
-    path.replace(['/'], "_")
 }
 
 #[cfg(test)]

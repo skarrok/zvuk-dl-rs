@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+### Fixed
+
+- 🐛 writing files with long path names ([#10](https://github.com/skarrok/zvuk-dl-rs/issues/10))
+
 ## [0.5.0] - 2026-04-15
 
 ### Added

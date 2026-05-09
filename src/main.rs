@@ -1,5 +1,6 @@
 mod config;
 mod logger;
+mod path;
 mod zvuk;
 
 use clap::Parser;

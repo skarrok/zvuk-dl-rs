@@ -12,8 +12,8 @@ pub fn setup(
     let log_level: LevelFilter = log_level.into();
 
     let with_color = supports_color::on(supports_color::Stream::Stderr)
-        .filter(|s| s.has_basic)
-        .is_some();
+        .as_ref()
+        .is_some_and(|s| s.has_basic);
 
     let mut default_filter =
         format!("{}={log_level}", env!("CARGO_PKG_NAME").replace('-', "_"));
