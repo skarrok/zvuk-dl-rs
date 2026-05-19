@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+### Fixed
+
+- 🐛 parsing `mark` fields in Zvuk DTOs
+
 ## [0.5.1] - 2026-05-16
 
 ### Fixed

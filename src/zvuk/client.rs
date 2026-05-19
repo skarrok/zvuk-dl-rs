@@ -1294,7 +1294,7 @@ mod tests {
                             "artistNames": [
                                 "Some artist"
                             ],
-                            "mark": null,
+                            "mark": ["foreign_agent"],
                             "zchan": "huh",
                             "lyrics": true,
                             "collectionItemData": {
@@ -1370,7 +1370,7 @@ mod tests {
                                 },
                                 "availability": 2,
                                 "artistTemplate": "{0}",
-                                "mark": null
+                                "mark": ["foreign_agent"]
                             },
                             "hasFlac": true
                         }
