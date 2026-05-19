@@ -195,7 +195,7 @@ pub(super) struct ZvukGQLTrack {
     explicit: bool,
     #[serde(alias = "artistNames")]
     pub(super) artist_names: Vec<String>,
-    mark: Option<String>,
+    mark: Option<serde_json::Value>,
     zchan: String,
     pub(super) lyrics: Option<bool>,
     #[serde(alias = "collectionItemData")]
@@ -249,7 +249,7 @@ pub(super) struct ZvukGQLRelease {
     availability: Option<i64>,
     #[serde(alias = "artistTemplate")]
     artist_template: Option<String>,
-    mark: Option<String>,
+    mark: Option<serde_json::Value>,
 }
 
 #[expect(unused)]
@@ -281,7 +281,7 @@ pub(super) struct ZvukGQLPlaylistTrack {
     #[serde(alias = "artistTemplate")]
     artist_template: String,
     child_param: Option<String>,
-    mark: Option<String>,
+    mark: Option<serde_json::Value>,
     pub(super) artists: Vec<ZvukGQLArtist>,
     pub(super) release: ZvukGQLRelease,
     zchan: String,
