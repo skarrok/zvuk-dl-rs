@@ -64,7 +64,7 @@ pub fn effective_max_total_path_len() -> usize {
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn effective_max_total_path_len() -> usize {
+pub const fn effective_max_total_path_len() -> usize {
     MAX_TOTAL_PATH_LEN
 }
 
@@ -543,7 +543,8 @@ mod tests {
             .into_owned();
         assert_eq!(conservative_dir, "~");
 
-        let long = normalize_path(&path, true, "seed", LONG_MAX_TOTAL_PATH_LEN);
+        let long =
+            normalize_path(&path, true, "seed", LONG_MAX_TOTAL_PATH_LEN);
         let long_dir = long
             .parent()
             .and_then(Path::file_name)
