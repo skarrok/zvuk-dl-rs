@@ -1214,6 +1214,7 @@ fn track_target_paths(
         &filepath,
         can_truncate_parent_folder,
         &track_info.track_id,
+        crate::path::effective_max_total_path_len(),
     );
 
     let directory_path = filepath
