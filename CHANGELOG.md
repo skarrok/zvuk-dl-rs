@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - 🐛 parsing `mark` fields in Zvuk DTOs
+- 🐛 folder name truncated to a bare `~` on Windows for long paths ([#12](https://github.com/skarrok/zvuk-dl-rs/issues/12))
+
+  Detect the `LongPathsEnabled` registry setting and target the larger
+  long-path limit when it's enabled, instead of the conservative `MAX_PATH`.
 
 ## [0.5.1] - 2026-05-16
 

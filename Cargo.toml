@@ -30,6 +30,10 @@ supports-color = "3.0.2"
 tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
 tracing = { version = "0.1.44", features = ["log"] }
 
+[target.'cfg(windows)'.dependencies]
+# Used to detect whether long paths are enabled in the registry.
+winreg = "0.55"
+
 [dev-dependencies]
 httpmock = "0.8.3"
 tempfile = "3.27.0"

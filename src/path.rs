@@ -23,6 +23,51 @@ const MAX_TOTAL_PATH_LEN: usize = 1024;
 )))]
 const MAX_TOTAL_PATH_LEN: usize = 1024;
 
+// Windows supports paths up to ~32767 chars when long paths are enabled
+// (registry key LongPathsEnabled). Rust's std transparently prefixes paths
+// over MAX_PATH with `\\?\`, so we can target this larger limit in that case.
+#[cfg(target_os = "windows")]
+const LONG_MAX_TOTAL_PATH_LEN: usize = 32_767;
+
+/// Returns whether long paths are enabled for the system via the
+/// `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled` registry
+/// value. Returns `false` if the value is missing or unreadable.
+#[cfg(target_os = "windows")]
+fn long_paths_enabled() -> bool {
+    use winreg::RegKey;
+    use winreg::enums::HKEY_LOCAL_MACHINE;
+
+    RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey(r"SYSTEM\CurrentControlSet\Control\FileSystem")
+        .and_then(|key| key.get_value::<u32, _>("LongPathsEnabled"))
+        .is_ok_and(|value| value == 1)
+}
+
+/// The maximum total path length to target.
+///
+/// On Windows this is the larger long-path limit when `LongPathsEnabled` is
+/// set in the registry, otherwise the conservative `MAX_PATH`-based default.
+/// The result is detected once and cached. On other platforms it is the
+/// platform default.
+#[cfg(target_os = "windows")]
+pub fn effective_max_total_path_len() -> usize {
+    use std::sync::OnceLock;
+
+    static CACHED: OnceLock<usize> = OnceLock::new();
+    *CACHED.get_or_init(|| {
+        if long_paths_enabled() {
+            LONG_MAX_TOTAL_PATH_LEN
+        } else {
+            MAX_TOTAL_PATH_LEN
+        }
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+pub const fn effective_max_total_path_len() -> usize {
+    MAX_TOTAL_PATH_LEN
+}
+
 fn component_len(value: &str) -> usize {
     if cfg!(target_os = "windows") {
         value.encode_utf16().count()
@@ -217,6 +262,7 @@ pub fn normalize_path(
     path: &Path,
     can_truncate_parent_folder: bool,
     seed: &str,
+    max_total_path_len: usize,
 ) -> PathBuf {
     let mut parent = path.parent().map(Path::to_path_buf);
     let mut directory = parent
@@ -265,9 +311,9 @@ pub fn normalize_path(
             .map_or_else(|| file_name.clone().into(), |p| p.join(file_name));
     }
 
-    if path_len(path) > MAX_TOTAL_PATH_LEN {
+    if path_len(path) > max_total_path_len {
         if can_truncate_parent_folder {
-            let available_dir_len = MAX_TOTAL_PATH_LEN
+            let available_dir_len = max_total_path_len
                 .saturating_sub(parent.as_ref().map_or(0, |p| path_len(p)))
                 .saturating_sub(2)
                 .saturating_sub(
@@ -297,8 +343,8 @@ pub fn normalize_path(
             }
         }
 
-        if path_len(&normalized_path) > MAX_TOTAL_PATH_LEN {
-            let available_filename_len = MAX_TOTAL_PATH_LEN
+        if path_len(&normalized_path) > max_total_path_len {
+            let available_filename_len = max_total_path_len
                 .saturating_sub(parent.as_ref().map_or(0, |p| path_len(p)))
                 .saturating_sub(1)
                 .clamp(1, MAX_COMPONENT_LEN);
@@ -358,7 +404,8 @@ mod tests {
     fn normalize_path_preserves_extension_with_limit() {
         let stem = "a".repeat(MAX_COMPONENT_LEN * 2);
         let path = PathBuf::from(stem).with_extension("flac");
-        let normalized = normalize_path(&path, false, "seed");
+        let normalized =
+            normalize_path(&path, false, "seed", MAX_TOTAL_PATH_LEN);
 
         dbg!(&normalized);
 
@@ -372,7 +419,8 @@ mod tests {
         let file_name = format!("{}.mp3", "n".repeat(MAX_COMPONENT_LEN + 50));
         let path = PathBuf::from(parent).join(file_name);
 
-        let normalized = normalize_path(&path, true, "track-id");
+        let normalized =
+            normalize_path(&path, true, "track-id", MAX_TOTAL_PATH_LEN);
 
         assert!(path_len(&normalized) <= MAX_TOTAL_PATH_LEN);
 
@@ -450,6 +498,7 @@ mod tests {
                     .with_extension(case.extension),
                 case.can_truncate_parent_folder,
                 "seed",
+                MAX_TOTAL_PATH_LEN,
             );
 
             assert!(path_len(&normalized) <= MAX_TOTAL_PATH_LEN);
@@ -463,7 +512,8 @@ mod tests {
         let parent = "p".repeat(MAX_TOTAL_PATH_LEN - 4);
         let path = PathBuf::from(parent).join("CON.mp3");
 
-        let normalized = normalize_path(&path, true, "track-id");
+        let normalized =
+            normalize_path(&path, true, "track-id", MAX_TOTAL_PATH_LEN);
         let file_name = normalized
             .file_name()
             .expect("normalized path must contain filename")
@@ -471,5 +521,36 @@ mod tests {
             .into_owned();
 
         assert_eq!(file_name, "_CON.mp3");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn normalize_path_preserves_directory_with_long_path_limit() {
+        // A deep base directory leaves almost no budget for the album folder
+        // under the conservative MAX_PATH limit, so it collapses to a bare "~".
+        // With long paths enabled the folder name is kept intact.
+        let base = "b".repeat(MAX_TOTAL_PATH_LEN - 10);
+        let directory = "Various Artists Compilation";
+        let path = PathBuf::from(&base).join(directory).join("01 - Track.mp3");
+
+        let conservative =
+            normalize_path(&path, true, "seed", MAX_TOTAL_PATH_LEN);
+        let conservative_dir = conservative
+            .parent()
+            .and_then(Path::file_name)
+            .expect("path must contain a directory")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(conservative_dir, "~");
+
+        let long =
+            normalize_path(&path, true, "seed", LONG_MAX_TOTAL_PATH_LEN);
+        let long_dir = long
+            .parent()
+            .and_then(Path::file_name)
+            .expect("path must contain a directory")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(long_dir, directory);
     }
 }
