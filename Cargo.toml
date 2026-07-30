@@ -3,6 +3,8 @@ name = "zvuk-dl"
 version = "0.5.2"
 edition = "2024"
 repository = "https://github.com/skarrok/zvuk-dl-rs"
+authors = ["skarrok"]
+description = "Download albums, tracks, audiobooks and playlists in high quality (FLAC or MP3) from zvuk.com"
 license = "MIT"
 
 [dependencies]
