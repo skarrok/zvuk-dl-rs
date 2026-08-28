@@ -337,19 +337,26 @@ impl Client {
                     )?;
                 }
             } else {
-                self.download_cover(&track_info.image, &cover_path).with_context(
-                    || {
-                        format!(
-                            "Failed to download and process cover for release {}",
-                            track_info.release_id
-                        )
+                match self.download_cover(&track_info.image, &cover_path) {
+                    Ok(()) => {
+                        release_covers.insert(
+                            track_info.release_id.clone(),
+                            cover_path.clone(),
+                        );
                     },
-                )?;
-                release_covers
-                    .insert(track_info.release_id.clone(), cover_path.clone());
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to download and process cover for release {}: {}",
+                            track_info.release_id,
+                            e
+                        );
+                    },
+                }
             }
 
-            track_covers.insert(track_info.track_id.clone(), cover_path);
+            if matches!(cover_path.try_exists(), Ok(true)) {
+                track_covers.insert(track_info.track_id.clone(), cover_path);
+            }
         }
 
         Ok(Covers::new(&release_covers, &track_covers))
@@ -394,20 +401,16 @@ impl Client {
                 format!("Missing release info for track id={track_id}")
             })?;
 
-        let cover_path = covers
-            .get(&match download_as {
-                DownloadAs::Album => CoverKey::Album(&track_info.release_id),
-                DownloadAs::Playlist => CoverKey::Track(track_id),
-            })
-            .with_context(|| {
-                format!("Missing cover path for track id={track_id}")
-            })?;
+        let cover_path = covers.get(&match download_as {
+            DownloadAs::Album => CoverKey::Album(&track_info.release_id),
+            DownloadAs::Playlist => CoverKey::Track(track_id),
+        });
 
         self.get_and_save_track(
             track_id,
             track_info,
             release_info,
-            &cover_path,
+            cover_path.as_deref(),
             actual_quality,
             download_as,
         )
@@ -569,7 +572,7 @@ impl Client {
         track_id: &str,
         track_info: &TrackInfo,
         release_info: &ReleaseInfo,
-        cover_path: &Path,
+        cover_path: Option<&Path>,
         actual_quality: Quality,
         download_as: &DownloadAs,
     ) -> anyhow::Result<()> {
@@ -636,7 +639,7 @@ impl Client {
     fn write_tags(
         &self,
         filepath: &Path,
-        cover_path: &Path,
+        cover_path: Option<&Path>,
         track_info: &TrackInfo,
         release_info: &ReleaseInfo,
         actual_quality: Quality,
@@ -693,7 +696,9 @@ impl Client {
             tags.set_year(date.year());
         }
 
-        if self.embed_cover {
+        if self.embed_cover
+            && let Some(cover_path) = cover_path
+        {
             let cover = Picture {
                 mime_type: MimeType::Jpeg,
                 data: &std::fs::read(cover_path)

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+### Fixed
+
+- 🐛 cover downloading being fatal
+
+  now it prints the warning and continues
+
+  fixes ([#14](https://github.com/skarrok/zvuk-dl-rs/issues/14))
+
 ## [0.5.2] - 2026-05-26
 
 ### Fixed
