@@ -29,6 +29,7 @@ secrecy = { version = "0.10.3" }
 serde_json = "1.0.151"
 serde = { version = "1.0.229", features = ["derive"] }
 supports-color = "3.0.2"
+tempfile = "3.27.0"
 tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
 tracing = { version = "0.1.44", features = ["log"] }
 
@@ -38,7 +39,6 @@ winreg = "0.56"
 
 [dev-dependencies]
 httpmock = "0.8.3"
-tempfile = "3.27.0"
 
 [lints.rust]
 unsafe_code = "forbid"

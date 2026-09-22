@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
+    process::Command,
     sync::{Arc, Mutex, mpsc},
     thread,
     time::Duration,
@@ -8,7 +9,8 @@ use std::{
 
 use anyhow::Context;
 use audiotags::{
-    AudioTag, FlacTag, Id3v2Tag, MimeType, Picture, traits::AudioTagWrite,
+    AudioTag, FlacTag, Id3v2Tag, MimeType, Mp4Tag, Picture,
+    traits::AudioTagWrite,
 };
 use chrono::{Datelike, NaiveDate};
 use id3::{TagLike, frame};
@@ -644,23 +646,10 @@ impl Client {
         release_info: &ReleaseInfo,
         actual_quality: Quality,
     ) -> anyhow::Result<()> {
-        let mut tags: Box<dyn AudioTag + Send + Sync> = match actual_quality {
-            Quality::Flac => FlacTag::read_from_path(filepath).map_or_else(
-                |_| {
-                    tracing::trace!("Failed to read FLAC tag from file");
-                    Box::new(FlacTag::new())
-                },
-                Box::new,
-            ),
-            Quality::MP3High | Quality::MP3Mid => {
-                Id3v2Tag::read_from_path(filepath).map_or_else(
-                    |_| {
-                        tracing::trace!("Failed to read ID3v2 tag from file");
-                        Box::new(Id3v2Tag::new())
-                    },
-                    Box::new,
-                )
-            },
+        let Ok(mut tags) = open_or_create_tags(filepath, actual_quality)
+            .inspect_err(|e| tracing::warn!("Failed to write tags: {e:#}"))
+        else {
+            return Ok(());
         };
 
         tags.set_artist(&track_info.author);
@@ -1154,6 +1143,83 @@ impl Client {
         )?;
 
         Ok(())
+    }
+}
+
+fn extract_flac_from_mp4(filepath: &Path) -> anyhow::Result<()> {
+    let output_file =
+        tempfile::NamedTempFile::new().context("Failed to create tempfile")?;
+
+    let status = Command::new("ffmpeg")
+        .arg("-loglevel")
+        .arg("quiet")
+        .arg("-y")
+        .arg("-i")
+        .arg(filepath)
+        .arg("-vn")
+        .arg("-c:a")
+        .arg("copy")
+        .arg("-f")
+        .arg("flac")
+        .arg(output_file.path())
+        .status()
+        .context("Failed to execute ffmpeg command")?;
+
+    if !status.success() {
+        return Err(anyhow::anyhow!(
+            "Failed to execute ffmpeg command successfully"
+        ));
+    }
+
+    std::fs::copy(output_file.path(), filepath)
+        .context("Failed to copy file")?;
+
+    Ok(())
+}
+
+fn open_or_create_tags(
+    filepath: &Path,
+    actual_quality: Quality,
+) -> anyhow::Result<Box<dyn AudioTag + Send + Sync>> {
+    match actual_quality {
+        Quality::Flac => {
+            if Mp4Tag::read_from_path(filepath).is_ok() {
+                extract_flac_from_mp4(filepath)
+                    .context("Failed to extract FLAC from MP4")?;
+            }
+
+            let tag = FlacTag::read_from_path(filepath);
+
+            if let Err(audiotags::Error::FlacTagError(ref e)) = tag
+                && matches!(e.kind, metaflac::ErrorKind::InvalidInput)
+            {
+                tracing::warn!(
+                    "Invalid flac file, skipping writing tags: {e}"
+                );
+                return Err(anyhow::anyhow!("Invalid flac file"));
+            }
+
+            let tag = tag.map_or_else(
+                |e| {
+                    tracing::trace!("Failed to read FLAC tag from file: {e}");
+                    Box::new(FlacTag::new())
+                },
+                Box::new,
+            );
+
+            Ok(tag)
+        },
+        Quality::MP3High | Quality::MP3Mid => {
+            let tag = Id3v2Tag::read_from_path(filepath).map_or_else(
+                |_| {
+                    tracing::trace!("Failed to read ID3v2 tag from file");
+                    Box::new(Id3v2Tag::new())
+                },
+                Box::new,
+            );
+
+            Ok(tag)
+        },
     }
 }
 

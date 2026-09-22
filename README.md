@@ -25,6 +25,14 @@ Tracks are downloaded to the specified output directory (or current directory by
 `Author - Album (Year)/## - Title.ext` format (`.flac` or `.mp3` depending on downloaded quality) and tags are added
 automatically.
 
+> [!WARNING]
+> Recently, downloaded FLACs are come packed inside MP4 conatiners while keeping file extension `.flac`.
+>
+> In this case, zvuk-dl will try to extract FLAC with ffmpeg command automatically.
+> If no ffmpeg command available, such files will be skipped and no meta tags (album, artist, lyrics, cover art) will be written to it.
+
+You can quickly install FFmpeg on Windows using the built-in package manager by running `winget install -e --id Gyan.FFmpeg` in your command prompt.
+
 By default, zvuk-dl downloads and embeds lyrics and downloads album cover.
 You can enable cover embedding with `--embed-cover=true` (it's disabled by default).
 By default, the album cover is resized to be less than 2MB using imagemagick if it exceeds this size.

@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   fixes ([#14](https://github.com/skarrok/zvuk-dl-rs/issues/14))
 
+- 🐛 don't break flac-in-mp4 files ([#15](https://github.com/skarrok/zvuk-dl-rs/issues/15))
+
+  Recently, downloaded FLACs are come packed inside MP4 conatiners while keeping file extension `.flac`.
+
+  In this case, zvuk-dl will try to extract FLAC with ffmpeg command automatically.
+
 ## [0.5.2] - 2026-05-26
 
 ### Fixed
