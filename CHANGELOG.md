@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+### Fixed
+
+- 🐛 418 errors from REST endpoints
+
+  Add Referer header to all REST and GraphQL requests with the request url itself
+
 ## [0.5.3] - 2026-09-23
 
 ### Fixed

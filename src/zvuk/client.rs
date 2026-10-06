@@ -17,7 +17,7 @@ use id3::{TagLike, frame};
 use reqwest::{
     Url,
     cookie::Jar,
-    header::{HeaderMap, USER_AGENT},
+    header::{self, HeaderMap, USER_AGENT},
 };
 use secrecy::ExposeSecret;
 use serde::Deserialize;
@@ -138,6 +138,7 @@ impl Client {
             .http
             .get(self.zvuk_releases_url.clone())
             .query(&[("ids", release_ids.join(","))])
+            .header(header::REFERER, self.zvuk_releases_url.to_string())
             .send()
             .context("Failed to download releases metadata")?
             .error_for_status()?;
@@ -437,6 +438,7 @@ impl Client {
             .http
             .post(self.zvuk_graphql_url.clone())
             .json(&request)
+            .header(header::REFERER, self.zvuk_graphql_url.to_string())
             .send()
             .context("Failed to download tracks metadata")?
             .error_for_status()?;
@@ -486,6 +488,7 @@ impl Client {
                 ("quality", effective_quality.to_string().as_str()),
                 ("id", track_id),
             ])
+            .header(header::REFERER, self.zvuk_download_url.to_string())
             .send()
             .with_context(|| {
                 format!("Failed to download track link for id={track_id}")
@@ -516,6 +519,7 @@ impl Client {
             .http
             .get(self.zvuk_lyrics_url.clone())
             .query(&[("track_id", track_id)])
+            .header(header::REFERER, self.zvuk_lyrics_url.to_string())
             .send()
             .context("Failed to download lyrics")?
             .error_for_status()?;
@@ -993,6 +997,7 @@ impl Client {
         let response = self
             .http
             .post(self.zvuk_graphql_url.clone())
+            .header(header::REFERER, self.zvuk_graphql_url.to_string())
             .json(&request)
             .send()
             .context("Failed to get books metadata")?
@@ -1040,6 +1045,7 @@ impl Client {
         let response = self
             .http
             .post(self.zvuk_graphql_url.clone())
+            .header(header::REFERER, self.zvuk_graphql_url.to_string())
             .json(&request)
             .send()
             .context("Failed to get audiobook urls")?
@@ -1099,6 +1105,7 @@ impl Client {
                 let response = self
                     .http
                     .post(self.zvuk_graphql_url.clone())
+                    .header(header::REFERER, self.zvuk_graphql_url.to_string())
                     .json(&request)
                     .send()
                     .with_context(|| format!("Failed to get playlist tracks playlist_id={playlist_id}"))?
