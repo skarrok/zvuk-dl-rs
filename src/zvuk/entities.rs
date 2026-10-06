@@ -110,6 +110,39 @@ impl TryFrom<super::dto::ZvukTrack> for TrackInfo {
     }
 }
 
+impl TryFrom<super::dto::ZvukGQLRelease> for ReleaseInfo {
+    type Error = anyhow::Error;
+
+    fn try_from(
+        value: super::dto::ZvukGQLRelease,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self {
+            track_ids: value
+                .tracks
+                .as_ref()
+                .map(|tracks| tracks.iter().map(|x| x.id.clone()).collect())
+                .unwrap_or_default(),
+            track_count: value
+                .tracks
+                .map(|x| x.len().try_into().unwrap_or_default())
+                .unwrap_or_default(),
+            label: value.label.map(|x| x.title).unwrap_or_default(),
+            date: value.date.unwrap_or_default(),
+            album: value.title,
+            author: value
+                .artists
+                .map(|artists| {
+                    artists
+                        .iter()
+                        .map(|x| x.title.clone())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default(),
+        })
+    }
+}
+
 impl TryFrom<super::dto::ZvukGQLTrack> for TrackInfo {
     type Error = anyhow::Error;
 

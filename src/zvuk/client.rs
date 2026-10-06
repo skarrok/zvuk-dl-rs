@@ -134,10 +134,18 @@ impl Client {
         release_ids: &[String],
     ) -> anyhow::Result<HashMap<String, super::entities::ReleaseInfo>> {
         tracing::info!("Getting releases metadata");
+
+        let request = serde_json::json!({
+            "query": gql::ZVUK_GQL_GET_RELEASES,
+            "variables": {
+                "ids": release_ids,
+            },
+            "operationName": "getReleases",
+        });
         let response = self
             .http
-            .get(self.zvuk_releases_url.clone())
-            .query(&[("ids", release_ids.join(","))])
+            .post(self.zvuk_graphql_url.clone())
+            .json(&request)
             .send()
             .context("Failed to download releases metadata")?
             .error_for_status()?;
@@ -145,13 +153,20 @@ impl Client {
         let body = response
             .json::<serde_json::Value>()
             .context("Failed to parse releases metadata")?;
-        tracing::trace!("{0} response: {body:#?}", self.zvuk_releases_url);
+        tracing::trace!(
+            operation = "getReleases",
+            "{0} response: {body:#?}",
+            self.zvuk_graphql_url
+        );
 
-        let result = super::dto::ZvukResponse::deserialize(body)?.result;
-        let mut releases = HashMap::with_capacity(result.releases.len());
+        let result = super::dto::ZvukGQLResponse::deserialize(body)?.data;
+        let Some(result) = result.get_releases else {
+            return Err(anyhow::anyhow!("No release info in response"));
+        };
+        let mut releases = HashMap::with_capacity(result.len());
 
-        for (release_id, release_info) in result.releases {
-            releases.insert(release_id.clone(), release_info.try_into()?);
+        for release_info in result {
+            releases.insert(release_info.id.clone(), release_info.try_into()?);
         }
 
         Ok(releases)
@@ -479,13 +494,19 @@ impl Client {
         track_id: &str,
         effective_quality: Quality,
     ) -> anyhow::Result<String> {
+        let request = serde_json::json!({
+            "query": gql::ZVUK_GQL_GET_STREAM,
+            "variables": {
+                "includeFlacDrm": true,
+                "useHLSv2": false,
+                "ids": [track_id]
+            },
+            "operationName": "getStream"
+        });
         let response = self
             .http
-            .get(self.zvuk_download_url.clone())
-            .query(&[
-                ("quality", effective_quality.to_string().as_str()),
-                ("id", track_id),
-            ])
+            .post(self.zvuk_graphql_url.clone())
+            .json(&request)
             .send()
             .with_context(|| {
                 format!("Failed to download track link for id={track_id}")
@@ -497,13 +518,27 @@ impl Client {
                 format!("Failed to parse track link for id={track_id}")
             })?;
         tracing::trace!(
-            "{0} response for id={track_id}: {body:#?}",
-            self.zvuk_download_url
+            operation = "getStream",
+            "{0} response: {body:#?}",
+            self.zvuk_graphql_url
         );
 
-        let result =
-            super::dto::ZvukDownloadResponse::deserialize(body)?.result;
-        Ok(result.stream)
+        let result = super::dto::ZvukGQLResponse::deserialize(body)?.data;
+        let Some(result) = result.media_contents else {
+            return Err(anyhow::anyhow!("No media contents in response"));
+        };
+
+        let result = result.first().with_context(|| {
+            format!("No stream for track id={track_id}")
+        })?;
+
+        let link = match effective_quality {
+            Quality::Flac => todo!(),
+            Quality::MP3High => result.stream.high.clone().unwrap_or_default(),
+            Quality::MP3Mid => result.stream.mid.clone(),
+        };
+
+        Ok(link)
     }
 
     fn get_lyrics(
@@ -699,11 +734,12 @@ impl Client {
         let lyrics = if self.download_lyrics && track_info.lyrics {
             let lyrics = self
                 .get_lyrics(&track_info.track_id, filepath)
-                .context("Failed to get lyrics")?;
-            if lyrics.text.is_empty() {
+                .inspect_err(|e| tracing::warn!("Failed to get lyrics: {:#}", e));
+
+            if let Ok(ref lyrics) = lyrics && lyrics.text.is_empty() {
                 tracing::warn!("No lyrics for {}", filepath.display());
             }
-            Some(lyrics)
+            lyrics.ok()
         } else {
             None
         };

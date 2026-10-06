@@ -155,7 +155,6 @@ query getFullTrack($ids: [ID!]!, $withReleases: Boolean = false, $withArtists: B
 }
 ";
 
-#[expect(dead_code)]
 pub const ZVUK_GQL_GET_RELEASES: &str = "
 query getReleases($ids: [ID!]!) {
   getReleases(ids: $ids) {
@@ -175,6 +174,10 @@ fragment ReleaseGqlFragment on Release {
   artists {
     id
     title
+    image {
+      src
+      palette
+    }
   }
   availability
   date
@@ -186,6 +189,7 @@ fragment ReleaseGqlFragment on Release {
   }
   label {
     id
+    title
   }
   searchTitle
   artistTemplate

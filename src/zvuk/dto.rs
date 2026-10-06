@@ -109,6 +109,8 @@ pub(super) struct ZvukGQLData {
     pub(super) media_contents: Option<Vec<ZvukGQLMediaContent>>,
     #[serde(alias = "getTracks")]
     pub(super) get_tracks: Option<Vec<ZvukGQLTrack>>,
+    #[serde(alias = "getReleases")]
+    pub(super) get_releases: Option<Vec<ZvukGQLRelease>>,
     #[serde(alias = "playlistTracks")]
     pub(super) playlist_tracks: Option<Vec<ZvukGQLPlaylistTrack>>,
 }
@@ -234,11 +236,18 @@ pub(super) struct ZvukGQLGenre {
     short_name: Option<String>,
 }
 
+#[derive(Deserialize, Clone)]
+pub(super) struct ZvukGQLTrackId {
+    pub(super) id: String,
+}
+
 #[expect(unused)]
 #[derive(Deserialize, Clone)]
 pub(super) struct ZvukGQLRelease {
     pub(super) id: String,
     pub(super) title: String,
+    pub(super) artists: Option<Vec<ZvukGQLArtist>>,
+    pub(super) tracks: Option<Vec<ZvukGQLTrackId>>,
     #[serde(alias = "searchTitle")]
     search_title: Option<String>,
     r#type: Option<String>,
